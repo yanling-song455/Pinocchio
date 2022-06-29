@@ -1,40 +1,8 @@
-/*****************************************************************
- *                        PINOCCHIO  V4.1                        *
- *  (PINpointing Orbit-Crossing Collapsed HIerarchical Objects)  *
- *****************************************************************
- 
- This code was written by
- Pierluigi Monaco
- Copyright (C) 2016
- 
- web page: http://adlibitum.oats.inaf.it/monaco/pinocchio.html
- 
- This program is free software; you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation; either version 2 of the License, or
- (at your option) any later version.
- 
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with this program; if not, write to the Free Software
- Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-*/
 
-/* TODO
-   - write table in binary format
-   - let the code read the table if required
-*/
 
 #include "pinocchio.h"
 #include <gsl/gsl_interp2d.h>
 #include <gsl/gsl_spline2d.h>
-
-//#define ELL_SNG
-//#define ELL_CLASSIC
 
 double inverse_collapse_time(int, double *, double *, double *, double *, int *);
 double ell(int,double,double,double);
@@ -44,7 +12,7 @@ void ord(double *,double *,double *);
 #ifdef TABULATED_CT
 double interpolate_collapse_time(int ismooth, double l1, double l2, double l3);
 
-// quanto segue alla fine potra` essere spostato giu` dove inizia 
+// quanto segue alla fine potra` essere spostato giu` dove inizia la parte TABULATED_CT
 
 //#define DEBUG
 //#define PRINTJUNK
@@ -55,7 +23,7 @@ double interpolate_collapse_time(int ismooth, double l1, double l2, double l3);
 #define BILINEAR_SPLINE
 
 #define CT_NBINS_XY (50)  // 50
-#define CT_NBINS_D  (100) // 100
+#define CT_NBINS_D (100)  // 100
 #define CT_SQUEEZE (1.2)  // 1.2
 #define CT_EXPO   (1.75)  // 1.75
 #define CT_RANGE_D (7.0)  // 7.0
@@ -82,7 +50,7 @@ FILE *JUNK;
 #endif
 #endif
 
-#endif
+#endif /* TABULATED_CT */
 
 int compute_collapse_times(int ismooth)
 {
@@ -91,6 +59,7 @@ int compute_collapse_times(int ismooth)
   double Fnew,diff_ten[6],delta,local_average,local_variance,global_average,global_variance,Np;
   double lambda1,lambda2,lambda3;
 
+  
   /* initialize the variance of the slice */
   local_variance = 0.0;
   local_average  = 0.0;
@@ -142,12 +111,8 @@ int compute_collapse_times(int ismooth)
 	      local_variance = local_variance + delta*delta;
 
 	      /* Computation of ellipsoidal collapse */
-	      Fnew = inverse_collapse_time(ismooth, diff_ten, &lambda1, &lambda2, &lambda3, &fail);
-
-#ifdef SCALE_DEPENDENT_GROWTH
-	      SDGM.flag=0;
-	      SDGM.ismooth=ismooth;
-#endif
+	      Fnew = inverse_collapse_time(ismooth, diff_ten, &lambda1, &lambda2, &lambda3, &fail); 
+		
 	      if (fail)
 		{
 		  printf("ERROR on task %d: failure in inverse_collapse_time\n",ThisTask);
@@ -159,6 +124,7 @@ int compute_collapse_times(int ismooth)
 		{
 		  products[index].Fmax = Fnew;
 		  products[index].Rmax = ismooth;
+       		 
 		}
 
 	    }
@@ -182,13 +148,7 @@ int compute_collapse_times(int ismooth)
   MPI_Bcast(&global_variance, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   Smoothing.TrueVariance[ismooth]=global_variance;
-
-#ifdef SCALE_DEPENDENT_GROWTH
-  SDGM.flag=0;
-  SDGM.ismooth=ismooth;
-  Smoothing.TrueVariance[ismooth] *= GrowingMode(params.camb.ReferenceRedshift,0.);
-#endif
-
+ 
 
   return 0;
 }
@@ -200,7 +160,7 @@ double inverse_collapse_time(int ismooth, double *deformation_tensor, double *x1
 
   int m;
   double mu1,mu2,mu3,c,q,r,sq,t;
-
+  
   /* mu1, mu2 and mu3 are the principal invariants of the 3x3 tensor 
      of second derivatives. */
 
@@ -275,6 +235,7 @@ double inverse_collapse_time(int ismooth, double *deformation_tensor, double *x1
   t=ell(ismooth,*x1,*x2,*x3);
 #endif  
 
+
     return t;
 }
 
@@ -323,15 +284,26 @@ int compute_velocities(int ismooth)
 
 #ifdef TABULATED_CT
 
-int initialize_collapse_times(int ismooth)
+FILE *CTtableFilePointer;
+
+int check_CTtable_header();
+void write_CTtable_header();
+
+
+int initialize_collapse_times(int ismooth, int onlycompute)
 {
   double l1, l2, l3, del, ampl, x, y, interval, ref_interval, deltaf;
-  int id,ix,iy,i,j;
+  int id,ix,iy,i,j, dummy, fail;
+  char fname[LBLENGTH];
 
+ 
   /* the bin size for delta varies like (delta - CT_DELTA0)^CT_EXPO, 
      so it is smallest around CT_DELTA0 if CT_EXPO>1. The bin size 
      is never smaller than CT_MIN_INTERVAL.
      The delta vector is computed at the first smoothing radius. */
+  
+
+
 
   if (!ismooth)
     {
@@ -344,6 +316,7 @@ int initialize_collapse_times(int ismooth)
 	  interval=2.*CT_RANGE_D/(double)CT_NBINS_D;
 	  for (id=0; id<CT_NBINS_D; id++)
 	    delta_vector[id]=id*interval -CT_RANGE_D;
+          
 	}
       else
 	{
@@ -357,7 +330,8 @@ int initialize_collapse_times(int ismooth)
 			     - 2.*pow(deltaf,2.-CT_EXPO) )/ 
 			   CT_EXPO/(2.-CT_EXPO) + 2.*deltaf/CT_SQUEEZE ) / (CT_NBINS_D-2.0);
 	  id=0;
-	  del=-CT_RANGE_D;
+          del=-CT_RANGE_D;
+	 					 
 	  do 
 	    {
 	      delta_vector[id]=del;
@@ -402,8 +376,39 @@ int initialize_collapse_times(int ismooth)
 
     }
 
+  /* In this case collapse times are read from a file */
+  if (strcmp(params.CTtableFile,"none") && !onlycompute)
+    {
+      /* opening of file and consistency tests */
+      if (!ismooth)
+	{
+	  /* Task 0 reads the file */
+	  if (!ThisTask)
+	    {
+
+	      CTtableFilePointer=fopen(params.CTtableFile,"r");
+	      fail=check_CTtable_header(CTtableFilePointer);
+
+	    }
+	  MPI_Bcast(&fail, sizeof(int), MPI_BYTE, 0, MPI_COMM_WORLD);
+	  if (fail)
+	    return 1;
+	}
+
+      if (!ThisTask)
+	{
+	  fread(&dummy,sizeof(int),1,CTtableFilePointer);
+	  fread(CT_table,sizeof(double),Ncomputations,CTtableFilePointer);
+	}
+
+      MPI_Bcast(CT_table, Ncomputations, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+      if (!ThisTask && ismooth==Smoothing.Nsmooth-1)
+	fclose(CTtableFilePointer);
+
+    }
+  else
+
   /* The collapse time table is computed for each smoothing radius */
-  //  if (!ismooth)
     {
 
       ampl = sqrt(Smoothing.Variance[ismooth]);
@@ -433,7 +438,7 @@ int initialize_collapse_times(int ismooth)
 	  l2  = (delta_vector[id] -    x +    y)/3.0*ampl;
 	  l3  = (delta_vector[id] -    x - 2.*y)/3.0*ampl;
 
-	  CT_table[i]= ell(ismooth,l1,l2,l3);
+	  CT_table[i]= ell(ismooth,l1,l2,l3); 
 	}
 
       MPI_Allgatherv( MPI_IN_PLACE, counts[ThisTask], MPI_DOUBLE, CT_table, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD );
@@ -441,25 +446,23 @@ int initialize_collapse_times(int ismooth)
       free(displs);
       free(counts);
 
-      /* now initialize the splines */
-      for (i=0; i<CT_NBINS_XY; i++)
-	for (j=0; j<CT_NBINS_XY; j++)
-	  {
-	    gsl_spline_init(CT_Spline[i][j],delta_vector,&CT_table[i*CT_NBINS_D+j*CT_NBINS_D*CT_NBINS_XY],CT_NBINS_D);
-	  }
-
-
       /* Writes the table on a file */
       if (!ThisTask)
 	{
-	  char fname[BLENGTH];
-	  FILE *fd;
-	  sprintf(fname,"pinocchio.%s.CTtable.out",params.RunFlag);
-	  if (!ismooth)
-	    fd=fopen(fname,"w");
+	  if (onlycompute)
+	    strcpy(fname,params.CTtableFile);
 	  else
-	    fd=fopen(fname,"a");
-	  fprintf(fd,"################\n# smoothing %2d #\n################\n",ismooth);
+	    sprintf(fname,"pinocchio.%s.CTtable.out",params.RunFlag);
+	  if (!ismooth)
+	    {
+	      CTtableFilePointer=fopen(fname,"w");
+	      write_CTtable_header(CTtableFilePointer);
+	    }
+	  else
+	    CTtableFilePointer=fopen(fname,"a");
+#ifdef ASCII
+	  fprintf(CTtableFilePointer,"################\n# smoothing %2d #\n################\n",ismooth);
+
 	  for (i=0; i<Ncomputations; i++)
 	    {
 	      id=i%CT_NBINS_D;
@@ -472,12 +475,25 @@ int initialize_collapse_times(int ismooth)
 	      l2  = (delta_vector[id] -    x +    y)/3.0*ampl;
 	      l3  = (delta_vector[id] -    x - 2.*y)/3.0*ampl;
 
-	      fprintf(fd," %d   %3d %3d %3d   %8f %8f %8f   %8f %8f %8f   %20g\n",
+	      fprintf(CTtableFilePointer," %d   %3d %3d %3d   %8f %8f %8f   %8f %8f %8f   %20g\n",
 		      ismooth,id,ix,iy,delta_vector[id],x,y,l1,l2,l3,CT_table[i]);
+
 	    }
-	  fclose(fd);
+#else
+	  fwrite(&ismooth,sizeof(int),1,CTtableFilePointer);
+	  fwrite(CT_table,sizeof(double),Ncomputations,CTtableFilePointer);
+#endif
+
+	  fclose(CTtableFilePointer);
 	}
+
     }
+
+  /* now initialize the splines */
+  for (i=0; i<CT_NBINS_XY; i++)
+    for (j=0; j<CT_NBINS_XY; j++)
+	gsl_spline_init(CT_Spline[i][j],delta_vector,&CT_table[i*CT_NBINS_D+j*CT_NBINS_D*CT_NBINS_XY],CT_NBINS_D);
+
 
   return 0;
 }
@@ -515,6 +531,9 @@ int reset_collapse_times(int ismooth)
 #ifdef TRILINEAR
 #ifdef HISTO
   // scrive l'istogramma della tabella
+
+  // QUESTA PARTE ANDREBBE SCRITTA E COMMENTATA MEGLIO
+
   char fname[50];
   FILE *fd;
   int i,id,ix,iy;
@@ -659,10 +678,6 @@ double interpolate_collapse_time(int ismooth, double l1, double l2, double l3)
   double dx = x/bin_x-ix;
   double dy = y/bin_x-iy;
 
-
-  /* if (ismooth==10) */
-  /*   printf(" %f %f %f    %f %f %f   %d %d   %f\n",l1,l2,l3,d,x,y,ix,iy,my_spline_eval(CT_Spline[ix  ][iy  ], d, accel)); */
-
   return ((1.-dx)*(1.-dy)*my_spline_eval(CT_Spline[ix  ][iy  ], d, accel)+
 	  (   dx)*(1.-dy)*my_spline_eval(CT_Spline[ix+1][iy  ], d, accel)+
 	  (1.-dx)*(   dy)*my_spline_eval(CT_Spline[ix  ][iy+1], d, accel)+
@@ -672,8 +687,120 @@ double interpolate_collapse_time(int ismooth, double l1, double l2, double l3)
 
 }
 
+int check_CTtable_header()
+{
 
-#endif 
+  /* checks that the information contained in the header is consistent with the run 
+     NB: this is done by Task 0 */
+
+  int fail=0, dummy;
+  double fdummy;
+
+  fread(&dummy,sizeof(int),1,CTtableFilePointer);
+#ifdef ELL_CLASSIC 
+  if (dummy!=1)   /* classic ellipsoidal collapse, tabulated */
+    {
+      fail=1;
+      printf("ERROR: CT table not constructed for ELL_CLASSIC, %d\n",
+	     dummy);
+    }
+#endif
+#ifdef ELL_SNG
+#ifndef MOD_GRAV_FR
+  if (dummy!=3)   /* standard gravity, numerical ellipsoidal collapse */
+    {
+      fail=1;
+      printf("ERROR: CT table not constructed for ELL_SNG and standard gravity, %d\n",
+	     dummy);
+    }
+#else
+  if (dummy!=4)   /* f(R) gravity, numerical ellipsoidal collapse */
+    {
+      fail=1;
+      printf("ERROR: CT table not constructed for ELL_SNG and MOD_GRAV_FR, %d\n",
+	     dummy);
+    }
+#endif
+#endif
+  fread(&fdummy,sizeof(double),1,CTtableFilePointer);
+  if (fabs(fdummy-params.Omega0)>1.e-10)
+    {
+      fail=1;
+      printf("ERROR: CT table constructed for the wrong Omega0, %f in place of %f\n",
+	     fdummy,params.Omega0);
+    }
+  fread(&fdummy,sizeof(double),1,CTtableFilePointer);
+  if (fabs(fdummy-params.OmegaLambda)>1.e-10)
+    {
+      fail=1;
+      printf("ERROR: CT table constructed for the wrong OmegaLambda, %f in place of %f\n",
+	     fdummy,params.OmegaLambda);
+    }
+  fread(&fdummy,sizeof(double),1,CTtableFilePointer);
+  if (fabs(fdummy-params.Hubble100)>1.e-10)
+    {
+      fail=1;
+      printf("ERROR: CT table constructed for the wrong Hubble100, %f in place of %f\n",
+	     fdummy,params.Hubble100);
+    }
+
+  fread(&dummy,sizeof(int),1,CTtableFilePointer);
+  if (dummy != Ncomputations)
+    {
+      fail=1;
+      printf("ERROR: CT table has the wrong size, %d in place of %d\n",
+	     dummy,Ncomputations);
+    }
+  fread(&dummy,sizeof(int),1,CTtableFilePointer);
+  if (dummy != CT_NBINS_D)
+    {
+      fail=1;
+      printf("ERROR: CT table has the wrong density sampling, %d in place of %d\n",
+	     dummy,CT_NBINS_D);
+    }
+  fread(&dummy,sizeof(int),1,CTtableFilePointer);
+  if (dummy != CT_NBINS_XY)
+    {
+      fail=1;
+      printf("ERROR: CT table has the wrong x and y sampling, %d in place of %d\n",
+	     dummy,CT_NBINS_XY);
+    }
+
+  return fail;
+}
+
+
+void write_CTtable_header()
+{
+
+  int dummy;
+
+#ifdef ELL_CLASSIC 
+  dummy=1;   /* classic ellipsoidal collapse, tabulated */
+  fwrite(&dummy,sizeof(int),1,CTtableFilePointer);
+#endif
+#ifdef ELL_SNG
+#ifndef MOD_GRAV_FR
+  dummy=3;   /* standard gravity, numerical ellipsoidal collapse */
+  fwrite(&dummy,sizeof(int),1,CTtableFilePointer);
+#else
+  dummy=4;   /* f(R) gravity, numerical ellipsoidal collapse */
+  fwrite(&dummy,sizeof(int),1,CTtableFilePointer);
+#endif
+#endif
+  fwrite(&params.Omega0,sizeof(double),1,CTtableFilePointer);
+  fwrite(&params.OmegaLambda,sizeof(double),1,CTtableFilePointer);
+  fwrite(&params.Hubble100,sizeof(double),1,CTtableFilePointer);
+
+  fwrite(&Ncomputations,sizeof(int),1,CTtableFilePointer);
+  dummy=CT_NBINS_D;
+  fwrite(&dummy,sizeof(int),1,CTtableFilePointer);
+  dummy=CT_NBINS_XY;
+  fwrite(&dummy,sizeof(int),1,CTtableFilePointer);
+
+}
+
+#endif /* TABULATED_CT */
 
 
 double ell(int ismooth, double l1, double l2, double l3)
@@ -682,13 +809,14 @@ double ell(int ismooth, double l1, double l2, double l3)
 #ifdef ELL_CLASSIC
   double bc=ell_classic(ismooth, l1, l2, l3);
   if (bc>0.0)
-    return 1.+InverseGrowingMode(bc);
+    return 1.+InverseGrowingMode(bc,ismooth);
   else
     return 0.0;
 #endif
 
 #ifdef ELL_SNG
   double bc=ell_sng(ismooth, l1, l2, l3);
+  
   if (bc>0.0)
     return 1./bc;
   else
@@ -718,6 +846,94 @@ double ForceModification(double size, double a, double delta)
 
 #endif
 
+
+#ifdef linearG3
+
+double ForceModification(double a)
+{
+   double M,c2,c3,ksi,H,dHdt,dphidt,ddphiddt,a2,a3;
+   double x1,x3,epsilon,inter,Qs,cs2,R_Rv3;
+
+   M=pow(100.*params.Hubble100,2./3.);         
+   c2=-1.;
+   c3=1./6./sqrt(6.*params.OmegaLambda);
+   ksi=sqrt(6.*params.OmegaLambda);
+
+
+   H=100.*params.Hubble100*sqrt((params.Omega0/pow(a,3.)+sqrt(pow(params.Omega0/pow(a,3.),2.)+4.*params.OmegaLambda))/2.);
+   dHdt=(pow(100.*params.Hubble100,4.)*params.OmegaLambda/H/H-H*H-100.*params.Hubble100*100.*params.Hubble100*(params.Omega0/pow(a,3.))/2.)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);
+			 
+   dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
+   ddphiddt=-ksi*100.*params.Hubble100*100.*params.Hubble100*dHdt/H/H;
+
+   a2=-c2/2.;
+   a3=c3/M/M/M/3.;
+   x1=-a2*dphidt*dphidt/H/H/3.;
+   x3=6.*a3*dphidt*dphidt*dphidt/H;
+   epsilon=ddphiddt/H/dphidt;
+   inter=(pow(100.*params.Hubble100/H,4.)*params.OmegaLambda*(2.5-1.5*(x1+x3))-x1-x3)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);
+
+   Qs=3.*(4.*x1+4.*x3+x3*x3)/(2.-x3)/(2.-x3);
+   cs2=(2.*(1.+3.*epsilon)*x3-x3*x3-4.*inter)/3./(4.*x1+4.*x3+x3*x3);
+
+					      
+   if(a<1.)
+	return x3*x3/(Qs*cs2*(2.-x3)*(2.-x3));
+   else
+	return 1.10526;
+						 
+}
+
+#endif
+
+#ifdef vainG3
+
+double ForceModification(double a, double delta)
+{
+
+  double M,c2,c3,ksi,H,dHdt,dphidt,ddphiddt,a2,a3;
+  double x1,x3,epsilon,inter,Qs,cs2,R_Rv3;
+
+  M=pow(100.*params.Hubble100,2./3.);         
+  c2=-1.;
+  c3=1./6./sqrt(6.*params.OmegaLambda);
+  ksi=sqrt(6.*params.OmegaLambda);
+
+
+  H=100.*params.Hubble100*sqrt((params.Omega0/pow(a,3.)+sqrt(pow(params.Omega0/pow(a,3.),2.)+4.*params.OmegaLambda))/2.);
+  dHdt=(pow(100.*params.Hubble100,4.)*params.OmegaLambda/H/H-H*H-100.*params.Hubble100*100.*params.Hubble100*(params.Omega0/pow(a,3.))/2.)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);
+ 
+  dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
+  ddphiddt=-ksi*100.*params.Hubble100*100.*params.Hubble100*dHdt/H/H;
+
+  a2=-c2/2.;
+  a3=c3/M/M/M/3.;
+  x1=-a2*dphidt*dphidt/H/H/3.;
+  x3=6.*a3*dphidt*dphidt*dphidt/H;
+  epsilon=ddphiddt/H/dphidt;
+  inter=(pow(100.*params.Hubble100/H,4.)*params.OmegaLambda*(2.5-1.5*(x1+x3))-x1-x3)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);
+
+  Qs=3.*(4.*x1+4.*x3+x3*x3)/(2.-x3)/(2.-x3);
+  cs2=(2.*(1.+3.*epsilon)*x3-x3*x3-4.*inter)/3./(4.*x1+4.*x3+x3*x3);
+
+  R_Rv3=pow(Qs*cs2*(2.-x3)*(2.-x3),2.)/(16.*OmegaMatter(1./a-1.)*delta*x3*x3);
+
+  if(delta<0.)
+   { if(a<1.)
+        return x3*x3/(Qs*cs2*(2.-x3)*(2.-x3));
+     else
+	return 1.10526;
+   }
+  else 
+      return 2.*x3*x3*R_Rv3*(sqrt(1.+1./R_Rv3)-1.)/(Qs*cs2*(2.-x3)*(2.-x3));
+
+}
+
+#endif
+
+
+
+
 /* System of ODEs: specify f_i(t) = r.h.s. of differential equations */
 /* f[i] = d(l_a)/da; f[i+3] = d(l_v)/da; d(l_d)/da                   */
 
@@ -728,7 +944,12 @@ int sng_system(double t, const double y[], double f[], void *sng_par)
   double sum;
   double omegam=OmegaMatter(1./t-1.);
   double omegal=OmegaLambda(1./t-1.);
+#ifdef Cubic_Galileon
+  double hubble=Hubble(1./t-1.);
+  double dothubble=dotHubble(1./t-1.);
+#endif
   double delta=y[6]+y[7]+y[8];
+
 
   for (i=0; i<3; i++) 
     {
@@ -743,12 +964,25 @@ int sng_system(double t, const double y[], double f[], void *sng_par)
 	      / ((1. - y[i]) * (1. - y[i]) - (1. - y[j]) * (1. - y[j]));
 	}
       f[i]   = (y[i+3]*(y[i]-1.0)) / t;
+#ifndef Cubic_Galileon
       f[i+3] = (0.5*(y[i+3]*(omegam - 2.0*omegal - 2.0) 
+#endif
+#ifdef Cubic_Galileon
+      f[i+3] = (0.5*(y[i+3]*(-2.*dothubble/hubble/hubble-4.0) 
+#endif
 #ifdef MOD_GRAV_FR
 		     - 3.0*omegam*y[i+6] * (1. + ForceModification(*(double*)sng_par, t, delta))
-#else
-		     - 3.0*omegam*y[i+6] 
 #endif
+#ifdef linearG3
+                     - 3.0*omegam*y[i+6] * (1. + ForceModification(t))
+#endif
+#ifdef vainG3
+                     - 3.0*omegam*y[i+6] * (1. + ForceModification(t,delta))
+#endif
+#if !defined(MOD_GRAV_FR) && (!defined(linearG3) && !defined(vainG3))
+                     - 3.0*omegam*y[i+6] 
+#endif
+
 		     - 2.0*y[i+3]*y[i+3])) / t;
       f[i+6] = ((5./6. + y[i+6]) * 
 		((3. + y[3] + y[4] + y[5]) 
@@ -756,7 +990,6 @@ int sng_system(double t, const double y[], double f[], void *sng_par)
 		- (2.5 + delta) * (1. + y[i+3]) + sum) / t;
 
 
-      //printf("%f %f %f %f\n",t,*(double*)params,delta,ForceModification(*(double*)params, t, delta));
     }
   return GSL_SUCCESS;
 }
@@ -769,6 +1002,8 @@ double ell_sng(int ismooth, double l1, double l2, double l3)
   double amin=1.e-5, amax=5.0;
   double mya = amin;
 
+ 
+
   const gsl_odeiv2_step_type *T = gsl_odeiv2_step_rkf45;
   gsl_odeiv2_step    *ode_s     = gsl_odeiv2_step_alloc(T,9);
   gsl_odeiv2_control *ode_c     = gsl_odeiv2_control_standard_new(1.0e-6, 1.0e-6, 1.0, 1.0);
@@ -776,7 +1011,11 @@ double ell_sng(int ismooth, double l1, double l2, double l3)
   gsl_odeiv2_system   ode_sys   = {sng_system, jac, 9, (void*)&ode_param};
 
   /* ICs */
-  double D_in = GrowingMode(1./amin-1.,1./Smoothing.Radius[ismooth]);
+#ifdef SCALE_DEPENDENT
+  double D_in = GrowingMode(1./amin-1.,params.k_for_GM/Smoothing.Radius[ismooth]*params.InterPartDist);
+#else
+  double D_in = GrowingMode(1./amin-1.,0.);
+#endif
   double y[9] = {l1*D_in, l2*D_in, l3*D_in,
 		 l1*D_in/(l1*D_in - 1.), l2*D_in/(l2*D_in - 1.), l3*D_in/(l3*D_in - 1.),
 		 l1*D_in, l2*D_in, l3*D_in};
@@ -801,9 +1040,12 @@ double ell_sng(int ismooth, double l1, double l2, double l3)
 	  fflush(stdout);
 	  return -1;
 	}
-      if (y[0]>=0.99999)
-	return olda + (1.-oldlam) * (mya - olda) / (y[0] - oldlam);
+      
+      if (y[0]>=0.99999)  
+	return olda + (1.-oldlam) * (mya - olda) / (y[0] - oldlam); 
     }
+  
+  
 
   /* in this case the ellipsoid does not collapse */
   return 0;

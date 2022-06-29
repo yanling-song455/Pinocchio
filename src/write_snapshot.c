@@ -97,7 +97,7 @@ int write_snapshot(int iout)
   double vfact, rvir, MyPos[3], *MyVel, Dz, conc, rnd, nfwfac, area, xrnd, yrnd, 
     probfunc, u, theta, sigma;
   MyVel=MyPos;
-  char filename[BLENGTH],wn[5],wt[9];
+  char filename[LBLENGTH],wn[5],wt[9];
   FILE *file;
   SnapshotHeader_data Header;
   MYIDTYPE *ID,*GRID;
@@ -159,11 +159,6 @@ int write_snapshot(int iout)
   ThisFile=ThisTask/NTasksPerFile;
   collector=ThisFile*NTasksPerFile;
 
-#ifdef SCALE_DEPENDENT_GROWTH
-  SDGM.flag=1;
-  SDGM.ismooth=Smoothing.Nsmooth-1;
-#endif
-
   SGrid[0]=(double)subbox.stabl_x;
   SGrid[1]=(double)subbox.stabl_y;
   SGrid[2]=(double)subbox.stabl_z;
@@ -173,7 +168,7 @@ int write_snapshot(int iout)
     (unsigned long long int)MyGrids[0].GSglobal_z;
   Lgridxy = subbox.Lgwbl_x * subbox.Lgwbl_y;
 
-  Dz = GrowingMode(outputs.z[iout],0.);
+  Dz = GrowingMode(outputs.z[iout],params.k_for_GM);
 
   /* Each task counts the number of particles that will be output */
   /* first loop is on good particles that are not in groups */
@@ -828,6 +823,7 @@ int write_snapshot(int iout)
 	    {
 	      /* the center of mass of groups is displaced with LPT */
 	      set_obj(group_ID[i], outputs.F[iout], &obj);
+	      set_obj_vel(group_ID[i], outputs.F[iout], &obj);
 	      for (j=0; j<3; j++)
 		MyVel[j]=(float)(vel(rot[j], &obj)*vfact);
 
@@ -849,11 +845,12 @@ int write_snapshot(int iout)
       {
 	/* the center of mass of groups is displaced with LPT */
 	set_obj(i, outputs.F[iout], &obj);
+	set_obj_vel(i, outputs.F[iout], &obj);
 	for (j=0; j<3; j++)
 	  MyVel[j]=(float)(vel(rot[j], &obj)*vfact);
 
 	/* /\* virial radius and concentration of the group *\/ */
-	/* Dz = GrowingMode(outputs.z[iout],0.); */
+	/* Dz = GrowingMode(outputs.z[iout],params.k_for_GM); */
 	/* /\* this is the virial radius in physical true kpc *\/ */
 	/* rvir = pow(0.01 * GRAVITY * groups[i].Mass*params.ParticleMass / */
 	/* 	   pow(Hubble(outputs.z[iout]),2.0), 1./3.);   */
@@ -1146,21 +1143,19 @@ int write_timeless_snapshot(void)
 
   int NTasksPerFile,collector,itask,next,ThisFile,index,npart,i,j,dummy,myNpart,NInFile,
     good_particle;
-  int SGrid[3],Lgridxy,ibox,jbox,kbox,kk,global_x,global_y,global_z, part;
-  unsigned long long int myNtotal, longdummy, NPartTot;
-  double vfact, rvir, MyPos[3], *MyVel;
-  MyVel=MyPos;
-  char filename[BLENGTH],wn[5],wt[9];
+  int Lgridxy,ibox,jbox,kbox,kk,global_x,global_y,global_z;
+  unsigned long long int NPartTot;
+  char filename[LBLENGTH],wn[5],wt[9];
   FILE *file;
   SnapshotHeader_data Header;
-  MYIDTYPE *ID,*GRID;
+  MYIDTYPE *ID;
   MPI_Status status;
   typedef struct
   {
     float axis[3];
   } AuxStruct;
   
-  AuxStruct *Pos,*Vel;
+  AuxStruct *Vel;
   float *FMAX,*ZACC;
   int *RMAX;
 
@@ -1186,14 +1181,6 @@ int write_timeless_snapshot(void)
   ThisFile=ThisTask/NTasksPerFile;
   collector=ThisFile*NTasksPerFile;
 
-#ifdef SCALE_DEPENDENT_GROWTH
-  SDGM.flag=1;
-  SDGM.ismooth=Smoothing.Nsmooth-1;
-#endif
-
-  SGrid[0]=(double)subbox.stabl_x;
-  SGrid[1]=(double)subbox.stabl_y;
-  SGrid[2]=(double)subbox.stabl_z;
   NPartTot = 
     (unsigned long long int)MyGrids[0].GSglobal_x * 
     (unsigned long long int)MyGrids[0].GSglobal_y * 
@@ -2005,13 +1992,15 @@ int write_timeless_snapshot(void)
 
 int write_LPT_snapshot(double redshift)
 {
+  // TODO: growth rate obtained directly in k-space
+
   /* writes displacements of all particles in a GADGET format */
 
   int NTasksPerFile,collector,itask,next,ThisFile,index,x,y,z,NInFile,npart,i,dummy;
   int SGrid[3],Q[3];  /* LGrid[3],GGrid[3]; */
   unsigned long long int NPartTot;
   double vf, G;
-  char filename[BLENGTH];
+  char filename[LBLENGTH];
   FILE *file;
   SnapshotHeader_data Header;
   MYIDTYPE *ID;
@@ -2030,7 +2019,7 @@ int write_LPT_snapshot(double redshift)
 #ifdef TWO_LPT
   double vf2,G2;
 #ifdef THREE_LPT
-  double G31,G32;
+  //double G31,G32;
 #endif
 #endif
 #ifdef ROTATE_BOX
@@ -2043,20 +2032,19 @@ int write_LPT_snapshot(double redshift)
   ThisFile=ThisTask/NTasksPerFile;
   collector=ThisFile*NTasksPerFile;
 
-#ifdef SCALE_DEPENDENT_GROWTH
-  SDGM.flag=1;
-  SDGM.ismooth=Smoothing.Nsmooth-1;
-#endif
-
+  
+  
+  
+  
   /* GADGET format requires velocities to be divided by sqrt(a) */
-  G=GrowingMode(redshift,0.);
-  vf = params.InterPartDist*fomega(redshift,0.)*Hubble(redshift)/sqrt(1.+redshift) * G;
+  G=GrowingMode(redshift,params.k_for_GM);
+  vf = params.InterPartDist*fomega(redshift,params.k_for_GM)*Hubble(redshift)/sqrt(1.+redshift) * G;
 #ifdef TWO_LPT
-  G2  = GrowingMode_2LPT(redshift,0.);
-  vf2 = params.InterPartDist*fomega_2LPT(redshift,0.)*Hubble(redshift)/sqrt(1.+redshift) * G2;
+  G2  = GrowingMode_2LPT(redshift,params.k_for_GM);
+  vf2 = params.InterPartDist*fomega_2LPT(redshift,params.k_for_GM)*Hubble(redshift)/sqrt(1.+redshift) * G2;
 #ifdef THREE_LPT
-  G31  = GrowingMode_3LPT_1(redshift,0.);
-  G32  = GrowingMode_3LPT_2(redshift,0.);
+  //G31  = GrowingMode_3LPT_1(redshift,params.k_for_GM);
+  //G32  = GrowingMode_3LPT_2(redshift,params.k_for_GM);
 #endif
 #endif
   SGrid[0]=(double)MyGrids[0].GSstart_x;
@@ -2122,7 +2110,7 @@ int write_LPT_snapshot(double redshift)
       Header.flag_feedback=0;
       Header.flag_cooling=0;
       Header.num_files=params.NumFiles;
-      Header.BoxSize=params.BoxSize_h100;
+      Header.BoxSize=params.BoxSize_h100;                
       Header.Omega0=params.Omega0;
       Header.OmegaLambda=params.OmegaLambda;
       Header.HubbleParam=params.Hubble100;
@@ -2172,7 +2160,7 @@ int write_LPT_snapshot(double redshift)
 
     }
 
-
+  
   /* each task builds its catalogue: Pos */
   if (MyGrids[0].total_local_size)
     {

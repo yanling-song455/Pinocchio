@@ -42,7 +42,7 @@
 
 #define NYQUIST 1.
 #define PI      3.14159265358979323846 
-#define BLENGTH 200
+#define LBLENGTH 400
 #define SBLENGTH 100
 #define GBYTE 1073741824.0
 #define MBYTE 1048576.0
@@ -50,20 +50,40 @@
 #define MAXOUTPUTS 100
 #define SPEEDOFLIGHT ((double)299792.458)
 #define GRAVITY ((double)4.30200e-9)      /*  (M_sun^-1 (km/s)^2 Mpc)  */
+#define NBINS 210   /* number of time bins in cosmological quantities */
 
 #if defined(THREE_LPT) && !defined(TWO_LPT)
 #define TWO_LPT
 #endif
 
-#if defined(KEEP_DENSITY) && defined(THREE_LPT)
-#error KEEP_DENSITY and THREE_LPT should not be used together
+#if defined(RECOMPUTE_DISPLACEMENTS) && defined(THREE_LPT)
+#error RECOMPUTE_DISPLACEMENTS and THREE_LPT should not be used together
+#endif
+
+#if !defined(ELL_SNG) && !defined(ELL_CLASSIC)
+#define ELL_CLASSIC
+#endif
+
+#if (defined(READ_PK_TABLE) || defined(MOD_GRAV_FR)) && !defined(SCALE_DEPENDENT)
+#define SCALE_DEPENDENT
+#endif
+
+#if defined(READ_PK_TABLE) && (defined(MOD_GRAV_FR) || defined(Cubic_Galileon))
+#error REAK_PK_TABLE and MOD_GRAV_FR/Cubic_Galileon cannot be chosen together
+#endif
+
+#if defined(MOD_GRAV_FR) && !defined(FR0)
+#error Please set a value to FR0 when you choose MOD_GRAV_FR
 #endif
 
 extern int ThisTask,NTasks;
 
+
 #ifdef DOUBLE_PRECISION_PRODUCTS
+#define MPI_PRODFLOAT MPI_DOUBLE
 typedef double PRODFLOAT;
 #else
+#define MPI_PRODFLOAT MPI_FLOAT
 typedef float PRODFLOAT;
 #endif
 
@@ -78,7 +98,7 @@ typedef struct
 #endif
 #endif
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
   PRODFLOAT Vel_after[3];
 #ifdef TWO_LPT
   PRODFLOAT Vel_2LPT_after[3];
@@ -121,6 +141,9 @@ typedef struct
 {
   int Nsmooth;
   double *Radius, *Variance, *TrueVariance;
+#ifdef SCALE_DEPENDENT
+  double *Rad_GM, *k_GM_dens, *k_GM_displ, *k_GM_vel;
+#endif
 } smoothing_data;
 extern smoothing_data Smoothing;
 
@@ -142,12 +165,11 @@ extern grid_data *MyGrids;
 extern fftw_complex **cvector_fft;
 extern double **rvector_fft;
 
-#ifdef SCALE_DEPENDENT_GROWTH
+#ifdef READ_PK_TABLE
 typedef struct
 {
-  double ReferenceRedshift;
-  int ReferenceOutput,Nkbins, NCAMB, ReferenceScale;
-  char MatterFile[BLENGTH], TransferFile[BLENGTH], RunName[SBLENGTH], RedshiftsFile[BLENGTH];
+  int Nkbins, NCAMB;
+  char MatterFile[SBLENGTH], TransferFile[SBLENGTH], RunName[SBLENGTH], RedshiftsFile[LBLENGTH];
   double *Logk, *LogPkref, D2ref, *Scalef, *RefGM;
 } camb_data;
 #endif
@@ -168,13 +190,13 @@ typedef struct
     StartingzForPLC, LastzForPLC, InputSpectrum_UnitLength_in_cm, WDM_PartMass_in_kev, 
     BoundaryLayerFactor, Largest, MaxMemPerParticle, k_for_GM, PLCAperture,
     PLCCenter[3], PLCAxis[3];
-  char RunFlag[SBLENGTH],DataDir[SBLENGTH],TabulatedEoSfile[BLENGTH],ParameterFile[BLENGTH],
-    OutputList[BLENGTH],FileWithInputSpectrum[BLENGTH];
+  char RunFlag[SBLENGTH],DataDir[SBLENGTH],TabulatedEoSfile[LBLENGTH],ParameterFile[LBLENGTH],
+    OutputList[LBLENGTH],FileWithInputSpectrum[LBLENGTH],CTtableFile[LBLENGTH];
   int GridSize[3],WriteRmax, WriteFmax, WriteVmax, 
     CatalogInAscii, DoNotWriteCatalogs, DoNotWriteHistories, WriteSnapshot, WriteTimelessSnapshot,
     OutputInH100, RandomSeed, MaxMem, NumFiles, MinMassForCat, 
     BoxInH100, simpleLambda, AnalyticMassFunction, MinHaloMass, PLCProvideConeData;
-#ifdef SCALE_DEPENDENT_GROWTH
+#ifdef READ_PK_TABLE
   camb_data camb;
 #endif
 } param_data;
@@ -225,7 +247,7 @@ typedef struct
   double Vel_3LPT_1[3], Vel_3LPT_2[3];
 #endif
 #endif
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
   double Vel_after[3];
 #ifdef TWO_LPT
   double Vel_2LPT_after[3];
@@ -277,15 +299,6 @@ extern int NSlices,ThisSlice;
 /* fragmentation parameters */
 extern double f_m, f_rm, espo, f_a, f_ra, f_200, sigmaD0;
 
-#ifdef SCALE_DEPENDENT_GROWTH
-typedef struct
-{
-  int flag, ismooth;
-  double radius;
-} SDGM_data;
-extern SDGM_data SDGM;
-#endif
-
 #define NWINT 1000
 extern gsl_integration_workspace *workspace;
 extern gsl_rng *random_generator;
@@ -311,16 +324,22 @@ extern mf_data mf;
 /* splines for interpolations */
 extern gsl_spline **SPLINE;
 extern gsl_interp_accel **ACCEL;
+#if defined(SCALE_DEPENDENT) && defined(ELL_CLASSIC)
+extern gsl_spline **SPLINE_INVGROW;
+extern gsl_interp_accel **ACCEL_INVGROW;
+#endif
 
-#ifdef MOD_GRAV_FR
+#if defined(MOD_GRAV_FR)
 extern double H_over_c;
 #endif
+
+
 
 /* prototypes for functions defined in collapse_times.c */
 int compute_collapse_times(int);
 int compute_velocities(int);
 #ifdef TABULATED_CT
-int initialize_collapse_times(int);
+int initialize_collapse_times(int, int);
 int reset_collapse_times(int);
 #endif
 
@@ -345,6 +364,7 @@ int reallocate_memory_for_fragmentation_2(int);
 
 /* prototypes for functions defined in GenIC.c */
 int GenIC(int);
+double VarianceOnGrid(int, double, double);
 
 /* prototypes for functions defined in initialization.c */
 int initialization();
@@ -370,7 +390,19 @@ int initialize_cosmology();
 int initialize_MassVariance();
 double OmegaMatter(double);
 double OmegaLambda(double);
+#ifndef Cubic_Galileon
 double Hubble(double);
+#endif
+#ifdef Cubic_Galileon
+double Hubble(double);
+double dotHubble(double);
+#endif
+#ifdef linearG3
+double ForceModification(double);
+#endif
+#ifdef vainG3
+double ForceModification(double,double);
+#endif
 double Hubble_Gyr(double);
 double fomega(double,double);
 double fomega_2LPT(double,double);
@@ -382,7 +414,7 @@ double GrowingMode(double,double);
 double GrowingMode_2LPT(double,double);
 double GrowingMode_3LPT_1(double,double);
 double GrowingMode_3LPT_2(double,double);
-double InverseGrowingMode(double);
+double InverseGrowingMode(double,int);
 double ComovingDistance(double);
 double InverseComovingDistance(double);
 double dComovingDistance_dz(double);
@@ -421,16 +453,10 @@ int fragment(void);
 /* prototypes for functions defined in build_groups.c */
 int build_groups(int,double);
 
-#ifdef SCALE_DEPENDENT_GROWTH
-int read_power_table_from_CAMB(void);
-int initialize_ScaleDependentGrowth(void);
-double MatterGrowingMode(double);
-double VelGrowingMode(double);
-double InverseMatterGrowingMode(double);
-double VelfOmega(double);
-double VelfOmega2(double);
-#endif
-
 #ifdef WHITENOISE
 int read_white_noise(void);
 #endif
+
+
+//LEVARE
+int test_GM(void);

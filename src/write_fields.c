@@ -29,10 +29,10 @@
 #include <sys/stat.h>
 
 #define FORTRAN
-//#define ASCII_WRITE
+#define ASCII_WRITE //Cubic_Galileon
 
 int check_DataDir(void);
-//int write_product(int, char*);
+
 int MyGrid;
 
 int write_fields(void)
@@ -50,7 +50,7 @@ int write_fields(void)
     if (write_product(4,tag))
       return 1;
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
   if (params.WriteVmax)
     {
       if (write_product(1,tag))
@@ -103,7 +103,7 @@ int write_product(int flag, char *tag)
   int ix, iy, local_z, global_z;
   size_t planesize;
   int *belongs_local, *belongs;
-  char filename[BLENGTH];
+  char filename[LBLENGTH];
   PRODFLOAT *plane;
   FILE *file;
 #if defined(FORTRAN) && !defined(ASCII_WRITE)
@@ -166,6 +166,7 @@ int write_product(int flag, char *tag)
       return 1;
     }
 
+
   /* file opening and header */
   if (!ThisTask)
     {
@@ -221,7 +222,7 @@ int write_product(int flag, char *tag)
 	  break;
 #endif
 #endif
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 	case 14:
 	  sprintf(filename,"Data/Velx_after%s.%s.d",tag,params.RunFlag);
 	  break;
@@ -380,7 +381,7 @@ int write_product(int flag, char *tag)
 	      break;
 #endif
 #endif
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 	    case 14:
 	      for (iy=0; iy<MyGrids[MyGrid].GSglobal_y; iy++)
 		for (ix=0; ix<MyGrids[MyGrid].GSglobal_x; ix++)
@@ -426,18 +427,19 @@ int write_product(int flag, char *tag)
 	  if (ThisTask==belongs[global_z])
 	    {
 	      /* Task belongs[iz] sends the plane to task 0 */
-	      MPI_Send(plane, planesize, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+	      MPI_Send(plane, planesize, MPI_PRODFLOAT, 0, 0, MPI_COMM_WORLD);
 	      
 	    }
 	  else if (!ThisTask)
 	    {
 	      /* task 0 receives the info from task belongs[global_z] and writes it on the file */
-	      MPI_Recv(plane, planesize, MPI_DOUBLE, belongs[global_z], 0, MPI_COMM_WORLD, &status);
+	      MPI_Recv(plane, planesize, MPI_PRODFLOAT, belongs[global_z], 0, MPI_COMM_WORLD, &status);
 	    }
 	}
 
       if (!ThisTask)
 	{
+
 #ifdef ASCII_WRITE
 	  /* writes the plane */
 	  for (iy=0; iy<MyGrids[MyGrid].GSglobal_y; iy++)
@@ -447,7 +449,7 @@ int write_product(int flag, char *tag)
 		last=1;
 		if (!((1+ix + iy*MyGrids[MyGrid].GSglobal_x)%8))
 		  {
-		    fprintf(file,"\n");
+ 		    fprintf(file,"\n");
 		    last=0;
 		  }
 	      }

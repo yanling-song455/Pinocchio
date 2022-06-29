@@ -100,13 +100,18 @@ int compute_fmax(void)
 
 #ifdef TABULATED_CT
       /* initialize spline for interpolating collapse times */
-      if (initialize_collapse_times(ismooth))
+      if (initialize_collapse_times(ismooth,0))
 	return 1;
 
       cputmp=MPI_Wtime()-cputmp;
 
       if (!ThisTask)
-	printf("[%s] Collapse times computed for interpolation, cpu time =%f s\n",fdate(),cputmp);
+	{
+	  if (strcmp(params.CTtableFile,"none"))
+	    printf("[%s] Collapse times read from file %s\n",fdate(),params.CTtableFile);
+	  else
+	    printf("[%s] Collapse times computed for interpolation, cpu time =%f s\n",fdate(),cputmp);
+	}
 
       cputime.coll+=cputmp;
       cputmp=MPI_Wtime();
@@ -133,9 +138,10 @@ int compute_fmax(void)
       cpusm = MPI_Wtime()-cpusm;
 
       if (!ThisTask)
-	printf("Smoothing radius completed: %d, R=%6.3f, expected rms: %7.4f, computed rms: %7.4f, cpu time = %f s\n",
-	       ismooth, Smoothing.Radius[ismooth], sqrt(Smoothing.Variance[ismooth]), 
-	       sqrt(Smoothing.TrueVariance[ismooth]), cpusm );
+	printf("[%s] Completed, R=%6.3f, expected sigma: %7.4f, computed sigma: %7.4f, cpu time = %f s\n",fdate(),
+	       Smoothing.Radius[ismooth], sqrt(Smoothing.Variance[ismooth]), 
+	       sqrt(Smoothing.TrueVariance[ismooth]), 
+	       cpusm );
 
       fflush(stdout);
       MPI_Barrier(MPI_COMM_WORLD);
@@ -164,8 +170,8 @@ int compute_fmax(void)
 
 #endif
 
-#ifndef KEEP_DENSITY
-  /* velocities are computed during fragmentation if it segmented */
+#ifndef RECOMPUTE_DISPLACEMENTS
+  /* displacements are computed during fragmentation in this case */
 
   cputmp=MPI_Wtime();
 
@@ -316,9 +322,9 @@ int compute_displacements(void)
 #ifdef TWO_LPT
   int j;
 
-  if (compute_second_derivatives(0.0, 0))
+  if (compute_second_derivatives(0.0, 0))   
     return 1;
-  if (compute_LPT_displacements(0))
+  if (compute_LPT_displacements(0))  
     return 1;
 
   for (i=0; i<3; i++)
@@ -335,6 +341,5 @@ int compute_displacements(void)
 
   for (i=0; i<3; i++)
     VEL_for_displ[i]=first_derivatives[0][i];
-
   return 0;
 }

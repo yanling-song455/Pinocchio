@@ -110,7 +110,7 @@ int allocate_main_memory()
   /* Computes total required memory */
   prods_memory = MyGrids[0].total_local_size * sizeof(product_data);               // products
   fields_memory=fields_to_keep_memory=0;
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
 
   for (igrid=0; igrid<Ngrids; igrid++)
     fields_memory += MyGrids[igrid].total_local_size_fft * sizeof(double);         // kdensity
@@ -155,7 +155,7 @@ int allocate_main_memory()
   group_memory += plc.Nmax * sizeof(plcgroup_data);
 #endif
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
 
   if (NSlices>1)
     frag_memory = prods_memory + frag_prods_memory + group_memory;
@@ -169,7 +169,7 @@ int allocate_main_memory()
 #endif
 
   /* this is the largest amount of memory needed by the code */
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
   all_memory = (fmax_memory + fft_memory > frag_memory ? fmax_memory + fft_memory : frag_memory);
 #else
   all_memory = (fmax_memory  > frag_memory ? fmax_memory : frag_memory) + fft_memory;
@@ -187,7 +187,7 @@ int allocate_main_memory()
       mymap.m4=(double)(fmax_memory+fft_memory)/(double)MyGrids[0].total_local_size;
       mymap.m5=(double)frag_prods_memory/(double)MyGrids[0].total_local_size;
       mymap.m6=(double)group_memory/(double)MyGrids[0].total_local_size;
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
       mymap.m7=(double)frag_memory/(double)MyGrids[0].total_local_size;
 #else
       mymap.m7=(double)(frag_memory+fft_memory)/(double)MyGrids[0].total_local_size;
@@ -438,7 +438,7 @@ int reallocate_memory_for_fragmentation_1()
   void *last;
 #endif
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
 
   kdensity=0x0;
 #ifdef TWO_LPT
@@ -486,7 +486,7 @@ int reallocate_memory_for_fragmentation_1()
 	}
     }
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
 
   /* the frag structure is located just after memory products */
   if (NSlices>1)
@@ -560,6 +560,8 @@ int reallocate_memory_for_fragmentation_2(int Npeaks)
 
 
   PredNpeaks=subbox.Npart/10;
+  
+  
 
   /* the number of peaks was supposed to be at most 1/10 of the number of particles
      (we need space for Npeaks+2 groups) */
@@ -567,6 +569,7 @@ int reallocate_memory_for_fragmentation_2(int Npeaks)
     {
       printf("ERROR on task %d: surprisingly, the number of peaks %d exceeds Npart/10 (%d)\n",
 	     ThisTask,Npeaks,subbox.Npart/10);
+      
       fflush(stdout);
       return 1;
     }

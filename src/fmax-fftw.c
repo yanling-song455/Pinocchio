@@ -149,7 +149,7 @@ double reverse_transform(int ThisGrid)
 
 int finalize_fftw()
 {
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
   int igrid;
 
   for (igrid=Ngrids-1; igrid>=0; igrid--)
@@ -207,28 +207,6 @@ int compute_derivative(int ThisGrid, int first_derivative, int second_derivative
 */
 
   double growth_rate=1.0;
-#ifdef SCALE_DEPENDENT
-  double Dk;
-  switch (ScaleDep.order)
-    {
-    case 1:
-      Dk=GrowingMode(ScaleDep.redshift,params.k_for_GM);
-      break;
-    case 2:
-      Dk=GrowingMode_2LPT(ScaleDep.redshift,params.k_for_GM);
-      break;
-    case 3:
-      Dk=GrowingMode_3LPT_1(ScaleDep.redshift,params.k_for_GM);
-      break;
-    case 4:
-      Dk=GrowingMode_3LPT_2(ScaleDep.redshift,params.k_for_GM);
-      break;
-    default:
-      Dk = 1.0;
-      break;
-    }
-#endif
-
 
 /* loop over k-space indices */
 /* This loop is correct for transposed order in FFTW */
@@ -259,22 +237,23 @@ int compute_derivative(int ThisGrid, int first_derivative, int second_derivative
 
 	      /* In the scale-dependent case the delta(k) must be multiplied 
 		 by the relevant growth rate */
+     
 	      switch (ScaleDep.order)
 		{
 		case 0:
 		  growth_rate = 1.0;
 		  break;
 		case 1:
-		  growth_rate = GrowingMode(ScaleDep.redshift,k_module) / Dk;
+		  growth_rate = GrowingMode(ScaleDep.redshift,k_module);
 		  break;
 		case 2:
-		  growth_rate = GrowingMode_2LPT(ScaleDep.redshift,k_module) / Dk;
+		  growth_rate = GrowingMode_2LPT(ScaleDep.redshift,k_module);
 		  break;
 		case 3:
-		  growth_rate = GrowingMode_3LPT_1(ScaleDep.redshift,k_module) / Dk;
+		  growth_rate = GrowingMode_3LPT_1(ScaleDep.redshift,k_module);
 		  break;
 		case 4:
-		  growth_rate = GrowingMode_3LPT_2(ScaleDep.redshift,k_module) / Dk;
+		  growth_rate = GrowingMode_3LPT_2(ScaleDep.redshift,k_module);
 		  break;
 		default:
 		  growth_rate = 1.0;
@@ -300,7 +279,7 @@ int compute_derivative(int ThisGrid, int first_derivative, int second_derivative
 
 		  green = greens_function(diff_comp, k_squared, first_derivative, second_derivative);
 
-		  (cvector_fft[ThisGrid][index/2])[0] *=  green * smoothing * growth_rate;
+		  (cvector_fft[ThisGrid][index/2])[0] *=  green * smoothing * growth_rate; 
 		  (cvector_fft[ThisGrid][index/2])[1] *=  green * smoothing * growth_rate;
 		}
 

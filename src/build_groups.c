@@ -86,7 +86,6 @@ int build_groups(int Npeaks, double zstop)
 #endif
 
 
-
   if (first_call)
     {
       /* Initializations */
@@ -101,7 +100,7 @@ int build_groups(int Npeaks, double zstop)
 	  all_counters[i1]=0;
 	}
 
-      groups[FILAMENT].point = groups[FILAMENT].bottom = subbox.Npart; // filaments are not grouped!
+      groups[FILAMENT].point = groups[FILAMENT].bottom = subbox.Npart; /* filaments are not grouped! */
 
       if (!ThisTask)
 	printf("[%s] Starting the fragmentation process to redshift %7.4f\n",fdate(),zstop);
@@ -113,7 +112,7 @@ int build_groups(int Npeaks, double zstop)
 	nstep++;
 
       nstep_p=nstep/20;
-
+      
 #ifdef PLC
       /* initialization of the root finding routine */
       cPLC.function = &condition_F;
@@ -223,11 +222,11 @@ int build_groups(int Npeaks, double zstop)
 
       /* More initializations */
 
-      neigrp=0;               // number of neighbouring groups
-      nf=0;                   // number of neighbouring filament points
-      accrflag=0;             // if =1 all the neighbouring filaments are accreted
+      neigrp=0;               /* number of neighbouring groups */
+      nf=0;                   /* number of neighbouring filament points */
+      accrflag=0;             /* if =1 all the neighbouring filaments are accreted */
       for (i1=0; i1<NV; i1++)
-	neigh[i1]=0;          // number of neighbours
+	neigh[i1]=0;          /* number of neighbours */
 
       /* grid coordinates from the indices (sub-box coordinates) */
       kbox=indices[iz]/Lgridxy;
@@ -458,7 +457,7 @@ int build_groups(int Npeaks, double zstop)
         groups[ngroups].Vel_3LPT_2[2]=frag[indices[iz]].Vel_3LPT_2[2];
 #endif
 #endif
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 	groups[ngroups].Vel_after[0]=frag[indices[iz]].Vel_after[0];
 	groups[ngroups].Vel_after[1]=frag[indices[iz]].Vel_after[1];
 	groups[ngroups].Vel_after[2]=frag[indices[iz]].Vel_after[2];
@@ -782,8 +781,6 @@ int build_groups(int Npeaks, double zstop)
       if (!ThisTask && !(iz%nstep_p))
         printf("[%s] *** %3d%% done, F = %6.2f,  z = %6.2f\n",fdate(),
 	       iz/(nstep_p)*5,frag[indices[iz]].Fmax,
-	       /* if F is the inverse growing mode: */
-	       /* InverseGrowingMode(1./frag[indices[iz]].Fmax) */
 	       frag[indices[iz]].Fmax-1.0
 	       );
 
@@ -861,8 +858,19 @@ double virial(int grp,double F,int flag)
   double r2,rlag,sigmaD;
 
   rlag = pow((double)grp,0.333333333333333);
-  sigmaD = sqrt(Smoothing.TrueVariance[Smoothing.Nsmooth-1]) * GrowingMode(F-1.,1./rlag/params.InterPartDist);  // QUI VERIFICARE
-
+#ifdef linearG3
+  rlag = pow((1.+ForceModification(1./F))*(double)grp,0.333333333333333);
+#endif
+#ifdef vainG3
+  rlag = pow((1.+ForceModification(1./F,200.))*(double)grp,0.333333333333333);
+#endif
+  int S=Smoothing.Nsmooth-1;
+  sigmaD = sqrt(Smoothing.TrueVariance[S]) * 
+#ifdef SCALE_DEPENDENT
+    GrowingMode(F-1.,Smoothing.k_GM_dens[S]); //  ATTENZIONE, QUESTO NON E` DEL TUTTO CORRETTO IN MG
+#else
+    GrowingMode(F-1.,params.k_for_GM);
+#endif
   if (!flag)
     /*  merging */
     r2 = pow( f_m * pow(rlag, espo) * (sigmaD>sigmaD0 ? 1.0+(sigmaD-sigmaD0)*f_rm : 1.0) , 2.0 ) + pow( f_200 * rlag, 2.0 );
@@ -1116,17 +1124,38 @@ void set_obj(int grp,double F,pos_data *myobj)
 {
   int i;
 
-#ifdef SCALE_DEPENDENT_GROWTH
-  SDGM.flag=1;
-  SDGM.ismooth=-1;
-  SDGM.radius=pow(myobj->M,1./3.)*params.InterPartDist;
+  myobj->M=groups[grp].Mass;
+  myobj->z=F-1.0;
+
+#ifdef SCALE_DEPENDENT
+
+  /* Group velocities are averaged over group extent, so their growth  
+     should be computed with a different scale */
+
+  /* Lagrangian radius of the object */
+  myobj->R=pow((double)(myobj->M)*3./4./PI,1./3.)*params.InterPartDist;
+  double interp=(1.-myobj->R/Smoothing.Rad_GM[0])*(double)(Smoothing.Nsmooth-1);
+  interp=(interp<0.?0.:interp);
+  int indx=(int)interp;
+  double w=interp-(double)indx;
+
+  /* linear interpolation of log k */
+  double myk= pow(10., log10(Smoothing.k_GM_displ[indx])*(1.-w) + log10(Smoothing.k_GM_displ[indx+1])*w);
+
+  /* growing modes for displacements */
+  myobj->D=GrowingMode(myobj->z,myk)/GrowingMode(0.0,myk); 
+#ifdef TWO_LPT
+  myobj->D2=GrowingMode_2LPT(myobj->z,myk)*GrowingMode_2LPT(0.0,0.0)/GrowingMode_2LPT(0.0,myk);
+#ifdef THREE_LPT
+  myobj->D31=GrowingMode_3LPT_1(myobj->z,myk)*GrowingMode_3LPT_1(0.0,0.0)/GrowingMode_3LPT_1(0.0,myk);
+  myobj->D32=GrowingMode_3LPT_2(myobj->z,myk)*GrowingMode_3LPT_2(0.0,0.0)/GrowingMode_3LPT_2(0.0,myk);
+#endif
 #endif
 
-  /* if F is the inverse growing mode: */
-  /* myobj->z=InverseGrowingMode(1./F); */
-  /* myobj->D=1./F; */
-  myobj->z=F-1.0;
-  myobj->D=GrowingMode(myobj->z,params.k_for_GM);  // QUI SERVE LA SCALA DEL GRUPPO? FORSE SI`
+#else
+
+  /* growing modes for displacements */
+  myobj->D=GrowingMode(myobj->z,params.k_for_GM);
 #ifdef TWO_LPT
   myobj->D2=GrowingMode_2LPT(myobj->z,params.k_for_GM);
 #ifdef THREE_LPT
@@ -1135,7 +1164,9 @@ void set_obj(int grp,double F,pos_data *myobj)
 #endif
 #endif
 
-#ifdef KEEP_DENSITY
+#endif
+
+#ifdef RECOMPUTE_DISPLACEMENTS
   if (!Segment.mine)
     myobj->w = 1.0;
   else
@@ -1156,7 +1187,7 @@ void set_obj(int grp,double F,pos_data *myobj)
 #endif
 #endif
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
       myobj->v_aft[i]=groups[grp].Vel_after[i];
 #ifdef TWO_LPT
       myobj->v2_aft[i]=groups[grp].Vel_2LPT_after[i];
@@ -1171,22 +1202,81 @@ void set_obj(int grp,double F,pos_data *myobj)
 
 }
 
+void set_obj_vel(int grp,double F,pos_data *myobj)
+{
+
+#ifdef SCALE_DEPENDENT
+
+  /* this routine sets the growth rates for peculiar velocities for a group */
+
+  double interp=(1.-myobj->R/Smoothing.Rad_GM[0])*(double)(Smoothing.Nsmooth-1);
+  interp=(interp<0.?0.:interp);
+  int indx=(int)interp;
+  double w=interp-(double)indx;
+
+  /* linear interpolation of log k */
+  double myk=pow(10., log10(Smoothing.k_GM_vel[indx])*(1.-w) + log10(Smoothing.k_GM_vel[indx+1])*w);
+  myobj->Dv = fomega(myobj->z,myk) * GrowingMode(myobj->z,myk) * GrowingMode(0.0,0.0) / GrowingMode(0.0,myk);
+    //* (Smoothing.norm_GM1_vel[indx+1]*(1.-w) + Smoothing.norm_GM1_vel[indx+1]*w);
+#ifdef TWO_LPT
+  myobj->D2v = fomega_2LPT(myobj->z,myk) * GrowingMode_2LPT(myobj->z,myk) * GrowingMode_2LPT(0.0,0.0) / GrowingMode_2LPT(0.0,myk);
+    //* (Smoothing.norm_GM2_vel[indx+1]*(1.-w) + Smoothing.norm_GM2_vel[indx+1]*w);
+#ifdef THREE_LPT
+  myobj->D31v = fomega_3LPT_1(myobj->z,myk) * GrowingMode_3LPT_1(myobj->z,myk) * GrowingMode_3LPT_1(0.0,0.0) / GrowingMode_3LPT_1(0.0,myk); 
+    //* (Smoothing.norm_GM31_vel[indx+1]*(1.-w) + Smoothing.norm_GM31_vel[indx+1]*w);
+  myobj->D32v = fomega_3LPT_2(myobj->z,myk) * GrowingMode_3LPT_2(myobj->z,myk) * GrowingMode_3LPT_2(0.0,0.0) /  GrowingMode_3LPT_2(0.0,myk);
+    //* (Smoothing.norm_GM32_vel[indx+1]*(1.-w) + Smoothing.norm_GM32_vel[indx+1]*w);
+#endif
+#endif
+
+#else
+
+  double myk=params.k_for_GM;
+  myobj->Dv = fomega(myobj->z,myk) * GrowingMode(myobj->z,myk);
+#ifdef TWO_LPT
+  myobj->D2v = fomega_2LPT(myobj->z,myk) * GrowingMode_2LPT(myobj->z,myk);
+#ifdef THREE_LPT
+  myobj->D31v = fomega_3LPT_1(myobj->z,myk) * GrowingMode_3LPT_1(myobj->z,myk);
+  myobj->D32v = fomega_3LPT_2(myobj->z,myk) * GrowingMode_3LPT_2(myobj->z,myk);
+#endif
+#endif
+
+#endif
+}
+
+
 void set_point(int i,int j,int k,int ind,double F,pos_data *myobj)
 {
-#ifdef SCALE_DEPENDENT_GROWTH
-  SDGM.flag=1;
-  SDGM.ismooth=frag[ind].Rmax;
-#endif
-  /* if F is the inverse growing mode: */
-  /* myobj->z=InverseGrowingMode(1./F); */
-  /* myobj->D=1./F; */
-#ifdef SCALE_DEPENDENT
-  myobj->myk=1./(pow(myobj->M,1./3.)*params.InterPartDist); // VERIFICARE FATTORE
-#else
-  myobj->myk=0.0;
-#endif
+
   myobj->z=F-1.0;
-  myobj->D=GrowingMode(myobj->z,myobj->myk);
+
+#ifdef SCALE_DEPENDENT
+
+  int S=Smoothing.Nsmooth-1;
+  double myk=Smoothing.k_GM_displ[S];
+  myobj->D=GrowingMode(myobj->z,myk) / GrowingMode(0.0,myk);
+#ifdef TWO_LPT
+  myobj->D2=GrowingMode_2LPT(myobj->z,myk) * GrowingMode_2LPT(0.0,0.0) / GrowingMode_2LPT(0.0,myk);
+#ifdef THREE_LPT
+  myobj->D31=GrowingMode_3LPT_1(myobj->z,myk) * GrowingMode_3LPT_1(0.0,0.0) / GrowingMode_3LPT_1(0.0,myk);
+  myobj->D32=GrowingMode_3LPT_2(myobj->z,myk) * GrowingMode_3LPT_2(0.0,0.0) / GrowingMode_3LPT_2(0.0,myk);
+#endif
+#endif
+
+#else
+
+  double myk=params.k_for_GM;
+  myobj->D=GrowingMode(myobj->z,myk);
+#ifdef TWO_LPT
+  myobj->D2=GrowingMode_2LPT(myobj->z,myk);
+#ifdef THREE_LPT
+  myobj->D31=GrowingMode_3LPT_1(myobj->z,myk);
+  myobj->D32=GrowingMode_3LPT_2(myobj->z,myk);
+#endif
+#endif
+
+#endif
+
   myobj->M=1;
   myobj->q[0]=i+SHIFT;
   myobj->q[1]=j+SHIFT;
@@ -1198,7 +1288,6 @@ void set_point(int i,int j,int k,int ind,double F,pos_data *myobj)
   myobj->v2[0]=frag[ind].Vel_2LPT[0];
   myobj->v2[1]=frag[ind].Vel_2LPT[1];
   myobj->v2[2]=frag[ind].Vel_2LPT[2];
-  myobj->D2=GrowingMode_2LPT(myobj->z,myobj->myk);
 #ifdef THREE_LPT
   myobj->v31[0]=frag[ind].Vel_3LPT_1[0];
   myobj->v31[1]=frag[ind].Vel_3LPT_1[1];
@@ -1206,12 +1295,10 @@ void set_point(int i,int j,int k,int ind,double F,pos_data *myobj)
   myobj->v32[0]=frag[ind].Vel_3LPT_2[0];
   myobj->v32[1]=frag[ind].Vel_3LPT_2[1];
   myobj->v32[2]=frag[ind].Vel_3LPT_2[2];
-  myobj->D31=GrowingMode_3LPT_1(myobj->z,myobj->myk);
-  myobj->D32=GrowingMode_3LPT_2(myobj->z,myobj->myk);
 #endif
 #endif
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 
   if (!Segment.mine)
     myobj->w = 1.0;
@@ -1258,7 +1345,7 @@ void set_group(int grp,pos_data *myobj)
 #endif
 #endif
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
       groups[grp].Vel_after[i]=myobj->v_aft[i];
 #ifdef TWO_LPT
       groups[grp].Vel_2LPT_after[i]=myobj->v2_aft[i];
@@ -1280,7 +1367,7 @@ double q2x(int i,pos_data *myobj,int order)
   int p;
   double L,pos;
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
 
   pos = myobj->q[i] + myobj->v[i]*myobj->D;
 #ifdef TWO_LPT
@@ -1294,14 +1381,16 @@ double q2x(int i,pos_data *myobj,int order)
 
 #else
 
-  pos = myobj->q[i] + (myobj->v[i]*(1.-myobj->w) + myobj->v_aft[i]*myobj->w)*myobj->D;
+// IMPLEMENTARE L'INTERPOLAZIONE PRIMA DEL PRIMO REDSHIFT
+
+  pos = myobj->q[i] + (myobj->v[i]*(1.-myobj->w) + myobj->v_aft[i]*myobj->w); // * myobj->D;
 #ifdef TWO_LPT
   if (order>1)
-    pos += (myobj->v2[i]*(1.-myobj->w) + myobj->v2_aft[i]*myobj->w) * myobj->D2;
+    pos += (myobj->v2[i]*(1.-myobj->w) + myobj->v2_aft[i]*myobj->w); // * myobj->D2;
 #ifdef THREE_LPT
   if (order>2)
-    pos += (myobj->v31[i]*(1.-myobj->w) + myobj->v31_aft[i]*myobj->w) * myobj->D31
-        +  (myobj->v32[i]*(1.-myobj->w) + myobj->v32_aft[i]*myobj->w) * myobj->D32;
+    pos += (myobj->v31[i]*(1.-myobj->w) + myobj->v31_aft[i]*myobj->w); // * myobj->D31
+        +  (myobj->v32[i]*(1.-myobj->w) + myobj->v32_aft[i]*myobj->w); // * myobj->D32;
 #endif
 #endif
 
@@ -1341,25 +1430,25 @@ double vel(int i,pos_data *myobj)
 
   fac=Hubble(myobj->z)/(1.+myobj->z)*params.InterPartDist;
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
 
-  vv = myobj->v[i] * fac * fomega(myobj->z,myobj->myk) * myobj->D;
+  vv = myobj->v[i] * fac * myobj->Dv;
 #ifdef TWO_LPT
-  vv += myobj->v2[i] * fac * fomega_2LPT(myobj->z,myobj->myk) * myobj->D2;
+  vv += myobj->v2[i] * fac * myobj->D2v;
 #ifdef THREE_LPT
-  vv += myobj->v31[i] * fac * fomega_3LPT_1(myobj->z,myobj->myk) * myobj->D31
-    +   myobj->v32[i] * fac * fomega_3LPT_2(myobj->z,myobj->myk) * myobj->D32;
+  vv += myobj->v31[i] * fac * myobj->D31v
+    +   myobj->v32[i] * fac * myobj->D32v;
 #endif
 #endif
 
 #else
 
-  vv = (myobj->v[i]*(1.-myobj->w) + myobj->v_aft[i]*myobj->w) * fac * fomega(myobj->z,myobj->myk) * myobj->D;
+  vv = (myobj->v[i]*(1.-myobj->w) + myobj->v_aft[i]*myobj->w) * fac * myobj->Dv;
 #ifdef TWO_LPT
-  vv += (myobj->v2[i]*(1.-myobj->w) + myobj->v2_aft[i]*myobj->w) * fac * fomega_2LPT(myobj->z,myobj->myk) * myobj->D2;
+  vv += (myobj->v2[i]*(1.-myobj->w) + myobj->v2_aft[i]*myobj->w) * fac * myobj->D2v;
 #ifdef THREE_LPT
-  vv += (myobj->v31[i]*(1.-myobj->w) + myobj->v31_aft[i]*myobj->w) * fac * fomega_3LPT_1(myobj->z,myobj->myk) * myobj->D31
-    +   (myobj->v32[i]*(1.-myobj->w) + myobj->v32_aft[i]*myobj->w) * fac * fomega_3LPT_2(myobj->z,myobj->myk) * myobj->D32;
+  vv += (myobj->v31[i]*(1.-myobj->w) + myobj->v31_aft[i]*myobj->w) * fac * myobj->D31v
+    +   (myobj->v32[i]*(1.-myobj->w) + myobj->v32_aft[i]*myobj->w) * fac * myobj->D32v;
 #endif
 #endif
 
@@ -1462,7 +1551,7 @@ void update(pos_data *obj1, pos_data *obj2)
 #endif
 #endif
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 
       obj1->v_aft[i] = (obj1->v_aft[i]*obj1->M + obj2->v_aft[i]*obj2->M)/(double)(obj1->M + obj2->M);
 #ifdef TWO_LPT
@@ -1508,7 +1597,6 @@ double condition_PLC(double F)
       condition+=diff1*diff1;
     }
 
-  /* if F is the inverse growing mode: z -> InverseGrowingMode(1./F) */
   condition = sqrt(condition) - ComovingDistance(F-1.0)/params.InterPartDist;
 
   return condition;
@@ -1530,6 +1618,7 @@ int store_PLC(double F)
     }
 
   set_obj(thisgroup,F,&obj1);
+  set_obj_vel(thisgroup,F,&obj1);
   for (i=0; i<3; i++)
     {
       /* displacement is done up to ORDER_FOR_CATALOG */
@@ -1541,8 +1630,6 @@ int store_PLC(double F)
   if (90.-theta<params.PLCAperture)
     {
 
-      /* if F is the inverse growing mode: */
-      /* plcgroups[plc.Nstored].z    = InverseGrowingMode(1./F); */
       plcgroups[plc.Nstored].z    = F-1.0;
       plcgroups[plc.Nstored].Mass = groups[thisgroup].Mass;
       plcgroups[plc.Nstored].name = groups[thisgroup].name;

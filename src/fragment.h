@@ -36,14 +36,14 @@ extern int ngroups;
 typedef struct
 {
   int M,i;
-  double q[3],v[3],D,z,myk;
+  double R,q[3],v[3],D,Dv,z;
 #ifdef TWO_LPT
-  double D2,v2[3];
+  double D2,D2v,v2[3];
 #ifdef THREE_LPT
-  double D31,v31[3],D32,v32[3];
+  double D31,D31v,v31[3],D32,D32v,v32[3];
 #endif
 #endif
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
   double w;
   double v_aft[3];
 #ifdef TWO_LPT
@@ -63,7 +63,7 @@ typedef struct
   int n, pad;
 }  catalog_data;
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 typedef struct
 {
   int n, mine;
@@ -75,6 +75,7 @@ Segment_data Segment;
 void condition_for_accretion(int, int, int, int, double, int, double *, double *);
 void condition_for_merging(double, int, int, int *);
 void set_obj(int, double, pos_data *);
+void set_obj_vel(int, double, pos_data *);
 void set_point(int, int, int, int, double, pos_data *);
 void set_group(int, pos_data *);
 double q2x(int, pos_data *, int);

@@ -30,7 +30,10 @@
 
 int compute_LPT_displacements(int ismooth)
 {
-  int local_x,local_y,local_z,index,ia;
+  int local_x,local_y,local_z,index;
+#if !defined(RECOMPUTE_DISPLACEMENTS) && !defined(THREE_LPT)
+  int ia;
+#endif
 #ifdef THREE_LPT
   int ib,ider;
 #endif
@@ -64,6 +67,7 @@ int compute_LPT_displacements(int ismooth)
 	  /* NB: QUI BISOGNERA` SOMMARE I CONTRIBUTI DELLE DUE GRIGLIE QUANDO USIAMO LE GRIGLIE MULTIPLE */
 
 	  /* source term for 2LPT */
+
 	  source_2LPT[index] = 
 	    second_derivatives[0][0][index] * second_derivatives[0][1][index] +
 	    second_derivatives[0][0][index] * second_derivatives[0][2][index] +
@@ -71,6 +75,8 @@ int compute_LPT_displacements(int ismooth)
 	    second_derivatives[0][3][index] * second_derivatives[0][3][index] -
 	    second_derivatives[0][4][index] * second_derivatives[0][4][index] -
 	    second_derivatives[0][5][index] * second_derivatives[0][5][index];
+
+
 
 #ifdef THREE_LPT
 	  source_3LPT_1[index] = 3.0 *(second_derivatives[0][0][index]*
@@ -134,12 +140,12 @@ int compute_LPT_displacements(int ismooth)
       }
 #endif
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
   /* velocities are computed during fragmentation if it segmented */
 
   /* displacements for the three terms */
   if (!ThisTask)
-    printf("[%s] Computing LPT displacements\n",fdate());
+    printf("\n[%s] Computing LPT displacements\n",fdate());
 
   Rsmooth=0.0;
 
@@ -189,7 +195,7 @@ int compute_LPT_displacements(int ismooth)
 
   write_from_cvector(0, kvector_3LPT_1);
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
   /* velocities are computed during fragmentation if it segmented */
 
   if (!ThisTask)
@@ -237,7 +243,7 @@ int compute_LPT_displacements(int ismooth)
 
   write_from_cvector(0, kvector_3LPT_2);
 
-#ifndef KEEP_DENSITY
+#ifndef RECOMPUTE_DISPLACEMENTS
   /* velocities are computed during fragmentation if it segmented */
 
   if (!ThisTask)

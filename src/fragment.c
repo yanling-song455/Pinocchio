@@ -33,7 +33,7 @@ int init_fragment_1(void);
 int init_fragment_2(int *);
 int count_peaks();
 void set_fragment_parameters(int);
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 int compute_future_LPT_displacements(double, int);
 int init_segmentation();
 int shift_all_displacements();
@@ -131,7 +131,7 @@ int fragment()
     printf("\n[%s] Second part: fragmentation of the collapsed medium\n",fdate());
 
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
   int mysegment;
   if (init_segmentation())
     return 1;
@@ -171,7 +171,7 @@ int fragment()
 
       /* Generates the group catalogue */
       /* The call is segmented into consecutive calls */
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
       for (mysegment=0; mysegment<Segment.n; mysegment++)
 	{
 	  Segment.mine=mysegment;
@@ -292,11 +292,12 @@ int init_fragment_2(int *Npeaks)
       fflush(stdout);
       return 1;
     }
-
   if (!ThisTask)
-    printf("[%s] Task 0 found %d peaks, in the well resolved region: %d. Total number of peaks: %d\n",
+    {
+      
+      printf("[%s] Task 0 found %d peaks, in the well resolved region: %d. Total number of peaks: %d\n",
 	   fdate(),*Npeaks,Ngood,tot_good);
-
+    }
   if (reallocate_memory_for_fragmentation_2(*Npeaks))
     return 1;
 
@@ -323,8 +324,8 @@ int count_peaks(int *ngood)
 
   int iz,i,j,k,kk,nn,ngroups_tot,Lgridxy,peak_cond,i1,j1,k1;
 
-  ngroups_tot=0;     // number of groups, group 1 is the filament group
-  *ngood=0;          // number of groups out of the safety boundary
+  ngroups_tot=0;     /* number of groups, group 1 is the filament group */
+  *ngood=0;          /* number of groups out of the safety boundary */
   Lgridxy = subbox.Lgwbl_x * subbox.Lgwbl_y;
 
   for (iz=0; iz<subbox.Npart; iz++)
@@ -398,7 +399,7 @@ int count_peaks(int *ngood)
 }
 
 
-#ifdef KEEP_DENSITY
+#ifdef RECOMPUTE_DISPLACEMENTS
 int compute_future_LPT_displacements(double z, int after)
 {
 
@@ -547,19 +548,6 @@ int shift_all_displacements()
       }
   return 0;
 }
-
-// QUESTO DOVREBBE ESSERE INUTILE
-/*   /\* This shifts Vel_after to Vel in the subbox space *\/ */
-/*   for (i=0; i<subbox.Npart; i++) */
-/*     for (ia=0; ia<3; ia++) */
-/*       frag[i].Vel[ia]=frag[i].Vel_after[ia]; */
-/* #ifdef TWO_LPT */
-/*   frag[i].Vel_2LPT[ia]=frag[i].Vel_2LPT_after[ia]; */
-/* #ifdef THREE_LPT */
-/*   frag[i].Vel_3LPT_1[ia]=frag[i].Vel_3LPT_1_after[ia]; */
-/*   frag[i].Vel_3LPT_2[ia]=frag[i].Vel_3LPT_2_after[ia]; */
-/* #endif */
-/* #endif */
 
 
 int recompute_group_velocities()

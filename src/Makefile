@@ -29,32 +29,31 @@ RUNDIR = ./
 
 EXEC = pinocchio.x
 
-# stantard options
 OPTIONS += -DTWO_LPT
-OPTIONS += -DTHREE_LPT
-OPTIONS += -DPLC
+#OPTIONS += -DTHREE_LPT
+#OPTIONS += -DPLC
 OPTIONS += -DNORADIATION
-#OPTIONS += -DROTATE_BOX
-
-# output
-#OPTIONS += -DTIMELESS_SNAPSHOT
-
-# computation of collapse times
-#OPTIONS += -DELL_CLASSIC
 OPTIONS += -DTABULATED_CT
 OPTIONS += -DELL_SNG
-
-# to activate f(R) modified gravity
-#OPTIONS += -DKEEP_DENSITY
+#OPTIONS += -DELL_CLASSIC
 #OPTIONS += -DSCALE_DEPENDENT
 #OPTIONS += -DMOD_GRAV_FR
 #OPTIONS += -DFR0=1.e-4
+#OPTIONS += -DRECOMPUTE_DISPLACEMENTS
+
+#Cubic Galileon
+OPTIONS += -DCubic_Galileon
+#OPTIONS += -DlinearG3
+#OPTIONS += -DvainG3
+
+# output
+#OPTIONS += -DROTATE_BOX
+#OPTIONS += -DTIMELESS_SNAPSHOT
 
 # other options
 #OPTIONS += -DWHITENOISE
-#OPTIONS += -DNO_RANDOM_MODULES
+OPTIONS += -DNO_RANDOM_MODULES
 #OPTIONS += -DDOUBLE_PRECISION_PRODUCTS
-
 
 
 
@@ -65,13 +64,15 @@ ifeq ($(SYSTYPE),"my_machine")
 CC          =  mpicc
 CDEBUG      = -ggdb3 -Wall
 COPTIMIZED  = -O3 -Wno-unused-result
-FFTW_LIBR   = -L$(HOME)/lib -lfftw3_mpi -lfftw3
-FFTW_INCL   = -I/usr/local/include -I$(HOME)/include
-MPI_LIBR    =
-MPI_INCL    =
-GSL_LIBR    = -lgsl -lgslcblas -lm
-GSL_INCL    = -I/usr/include
+FFTW_LIBR   = -L/home/syl/phoebe/apt/fftw-3.3.8/lib -lfftw3_mpi -lfftw3
+FFTW_INCL   = -I/home/syl/phoebe/apt/fftw-3.3.8/include
+MPI_LIBR    = -L/home/syl/phoebe/apt/mpich-3.3.2/lib -lmpi
+MPI_INCL    = -I/home/syl/phoebe/apt/mpich-3.3.2/include
+GSL_LIBR    = -L/home/syl/phoebe/apt/gsl-2.6/lib -lgsl -lgslcblas -lm
+GSL_INCL    = -I/home/syl/phoebe/apt/gsl-2.6/include
 endif
+
+
 
 
 # included libraries, shared libraries 
@@ -80,26 +81,22 @@ LIB =  $(FFTW_LIBR)  $(MPI_LIBR) $(GSL_LIBR)
 
 
 # compiler options : choose from CDEBUG or COPTIMIZED
-#COPTS = $(CDEBUG)
-COPTS = $(COPTIMIZED)
+COPTS = $(CDEBUG)
+#COPTS = $(COPTIMIZED)
 
 # source files:
 OBJECTS = fmax.o variables.o initialization.o collapse_times.o fmax-fftw.o GenIC.o \
 	ReadParamfile.o ReadWhiteNoise.o write_fields.o allocations.o LPT.o fragment.o \
 	build_groups.o distribute.o write_halos.o write_snapshot.o cosmo.o
 
-ifeq (SCALE_DEPENDENT_GROWTH,$(findstring SCALE_DEPENDENT_GROWTH,$(OPTIONS)))
-OBJECTS += Pk_from_CAMB.o
-endif
-
 
 # rules
-%.o: %.c Makefile pinocchio.h fragment.h
+%.o: %.c Makefile pinocchio.h fragment.h def_splines.h
 	$(CC) $(INC) $(COPTS) $(OPTIONS) -c $<
 
 
 pinocchio: $(OBJECTS) pinocchio.o Makefile
-	$(CC) $(INC) $(COPTS) -o $(EXEC) pinocchio.o $(OBJECTS) $(LIB)
+	$(CC) $(INC) $(COPTS) -o $(RUNDIR)/$(EXEC) pinocchio.o $(OBJECTS) $(LIB)
 
 memorytest: $(OBJECTS) memorytest.o Makefile
 	$(CC) $(INC) $(COPTS) -o memorytest memorytest.o $(OBJECTS) $(LIB)
