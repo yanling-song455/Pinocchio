@@ -865,7 +865,7 @@ double ForceModification(double a)
 			 
    dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
    ddphiddt=-ksi*100.*params.Hubble100*100.*params.Hubble100*dHdt/H/H;
-
+                                                              // refer to Frusciante et al. 2020(arXiv:2004.11881)
    a2=-c2/2.;
    a3=c3/M/M/M/3.;
    x1=-a2*dphidt*dphidt/H/H/3.;
@@ -905,7 +905,7 @@ double ForceModification(double a, double delta)
  
   dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
   ddphiddt=-ksi*100.*params.Hubble100*100.*params.Hubble100*dHdt/H/H;
-
+                                                                    // refer to Frusciante et al. 2020(arXiv:2004.11881)
   a2=-c2/2.;
   a3=c3/M/M/M/3.;
   x1=-a2*dphidt*dphidt/H/H/3.;
