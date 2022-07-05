@@ -715,8 +715,8 @@ int system_of_ODEs(double x, const double y[], double *dydx, void *param)
   ddphiddt=-ksi*100.*params.Hubble100*100.*params.Hubble100*dHdt/H/H;
 
   
-  //parameters for Cubic Galileon
-  a2=-c2/2.;
+  //parameters for Cubic Galileon         the notations obey Frusciante et al. 2020(arXiv:2004.11881), all the G3 related functions obey this notation.
+  a2=-c2/2.;                                
   a3=c3/M/M/M/3.;
   x1=-a2*dphidt*dphidt/H/H/3.;
   x3=6.*a3*dphidt*dphidt*dphidt/H;
@@ -1808,7 +1808,7 @@ double OmegaLambda(double z)
   
   dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
   
-  a2=-c2/2.;
+  a2=-c2/2.;                                   // refer to Frusciante et al. 2020(arXiv:2004.11881)
   a3=c3/M/M/M/3.;
   x1=-a2*dphidt*dphidt/H/H/3.;
   x3=6.*a3*dphidt*dphidt*dphidt/H;
