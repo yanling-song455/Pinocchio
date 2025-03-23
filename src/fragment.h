@@ -1,14 +1,12 @@
 /*****************************************************************
- *                        PINOCCHIO  V5.1                        *
+ *                        PINOCCHIO  V4.1                        *
  *  (PINpointing Orbit-Crossing Collapsed HIerarchical Objects)  *
  *****************************************************************
  
  This code was written by
- Pierluigi Monaco, Tom Theuns, Giuliano Taffoni, Marius Lepinzan, 
- Chiara Moretti, Luca Tornatore, David Goz, Tiago Castro
- Copyright (C) 2025
+ Pierluigi Monaco
+ Copyright (C) 2016
  
- github: https://github.com/pigimonaco/Pinocchio
  web page: http://adlibitum.oats.inaf.it/monaco/pinocchio.html
  
  This program is free software; you can redistribute it and/or modify
@@ -38,11 +36,21 @@ extern int ngroups;
 typedef struct
 {
   int M,i;
-  double q[3],v[3],D,z;
+  double R,q[3],v[3],D,Dv,z;
 #ifdef TWO_LPT
-  double D2,v2[3];
+  double D2,D2v,v2[3];
 #ifdef THREE_LPT
-  double D31,v31[3],D32,v32[3];
+  double D31,D31v,v31[3],D32,D32v,v32[3];
+#endif
+#endif
+#ifdef RECOMPUTE_DISPLACEMENTS
+  double w;
+  double v_aft[3];
+#ifdef TWO_LPT
+  double v2_aft[3];
+#ifdef THREE_LPT
+  double v31_aft[3],v32_aft[3];
+#endif
 #endif
 #endif
 } pos_data;
@@ -55,9 +63,19 @@ typedef struct
   int n, pad;
 }  catalog_data;
 
+#ifdef RECOMPUTE_DISPLACEMENTS
+typedef struct
+{
+  int n, mine;
+  double z[MAXOUTPUTS];
+} Segment_data;
+Segment_data Segment;
+#endif
+
 void condition_for_accretion(int, int, int, int, double, int, double *, double *);
 void condition_for_merging(double, int, int, int *);
 void set_obj(int, double, pos_data *);
+void set_obj_vel(int, double, pos_data *);
 void set_point(int, int, int, int, double, pos_data *);
 void set_group(int, pos_data *);
 double q2x(int, pos_data *, int);

@@ -1,14 +1,12 @@
 /*****************************************************************
- *                        PINOCCHIO  V5.1                        *
+ *                        PINOCCHIO  V4.1                        *
  *  (PINpointing Orbit-Crossing Collapsed HIerarchical Objects)  *
  *****************************************************************
  
  This code was written by
- Pierluigi Monaco, Tom Theuns, Giuliano Taffoni, Marius Lepinzan, 
- Chiara Moretti, Luca Tornatore, David Goz, Tiago Castro
- Copyright (C) 2025
+ Pierluigi Monaco
+ Copyright (C) 2016
  
- github: https://github.com/pigimonaco/Pinocchio
  web page: http://adlibitum.oats.inaf.it/monaco/pinocchio.html
  
  This program is free software; you can redistribute it and/or modify
@@ -26,7 +24,6 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
-
 #include "pinocchio.h"
 #include "def_splines.h"
 #include <gsl/gsl_interp2d.h>
@@ -40,13 +37,13 @@
 #else
 #define OMEGARAD_H2 ((double)4.2e-5)
 #endif
+#define TOLERANCE ((double)1.e-4)
 #define UnitLength_in_cm ((double)3.085678e24)
 #define HUBBLETIME_GYR ((double)3.085678e24/(double)1.e7/(double)3.1558150e16)
 #define DELTA_C ((double)1.686)
 #define SHAPE_EFST ((double)0.21)
 
 //#define FOMEGA_GAMMA 0.554
-//TUTTE LE CONDIZIONI SULLE DIRETTIVE DEVONO ESSERE MESSE INSIEME
 #if defined(FOMEGA_GAMMA) && defined(SCALE_DEPENDENT)
 #error Do not use FOMEGA_GAMMA with SCALE_DEPENDENT
 #endif
@@ -54,9 +51,12 @@
 static int Today;
 static int WhichSpectrum, NPowerTable=0, NtabEoS=0;
 static double PkNorm, MatterDensity, OmegaK, OmegaRad;
+#if defined(nDGP) || defined(Cubic_Galileon)
+static double grow1today; 
+#endif
 
 /* declaration of gsl quantities */
-
+gsl_function Function;
 
 #ifdef SCALE_DEPENDENT
 static double kmin,kmax;
@@ -78,6 +78,8 @@ int read_Pk_table_from_CAMB(double *, double *, double *, double *, double *, do
 #endif
 
 
+
+
 /**************************/
 /* INITIALIZATION SECTION */
 /**************************/
@@ -92,23 +94,23 @@ int initialize_cosmology()
   */
 
   double ode_param;
-  double y[NVAR], x1, x2, hh, norm, result, error, SqrtOmegaK, R0, k;
+  double y[NVAR], x1,x2,hh, norm, result, error, SqrtOmegaK, R0, k;
   int status=GSL_SUCCESS, i, j;
 #ifdef SCALE_DEPENDENT
   int ik;
 #endif
   char filename[LBLENGTH];
   FILE *fd;
-  double log_amin=-4., dloga=-log_amin/(double)(NBINS-NBB);
+  double log_amin=-4., dloga=-log_amin/(double)(NBINS-NBB); 
 
   double *scalef, *cosmtime, *grow1, *grow2, *IntEoS, *comvdist, *diamdist,
     *fomega1, *fomega2, *grow31, *grow32, *fomega31, *fomega32;
 
-  gsl_function Function_cosmo;
-  
-#ifdef MOD_GRAV_FR
+
+#if defined(MOD_GRAV_FR) 
   H_over_c = 100. / SPEEDOFLIGHT;
 #endif
+
   OmegaRad = OMEGARAD_H2 / params.Hubble100 / params.Hubble100;
   OmegaK = 1.0-params.Omega0 - params.OmegaLambda - OmegaRad;
   SqrtOmegaK = sqrt(fabs(OmegaK));
@@ -145,11 +147,11 @@ int initialize_cosmology()
 
       scalef  = (double*)malloc(NBINS * sizeof(double));
       IntEoS  = (double*)malloc(NBINS * sizeof(double));
-      Function_cosmo.function = &IntegrandForEoS;
+      Function.function = &IntegrandForEoS;
       for (i=0; i<NBINS; i++)
 	{
 	  x2=pow(10., log_amin + (i+1)*dloga);
-	  gsl_integration_qags(&Function_cosmo, x2, 1.0, 0.0, TOLERANCE, NWINT, workspace, &result, &error);
+	  gsl_integration_qags(&Function, x2, 1.0, 0.0, TOLERANCE, NWINT, workspace, &result, &error);
 	  scalef[i] = log_amin + (i+1)*dloga;
 	  IntEoS[i] = result;
 	}
@@ -183,10 +185,13 @@ int initialize_cosmology()
   fomega31  = (double*)malloc(NBINS * NkBINS * sizeof(double));
   fomega32  = (double*)malloc(NBINS * NkBINS * sizeof(double));
 
+
+
 #ifdef READ_PK_TABLE
   if (WhichSpectrum!=5)
 #endif
     {
+
       /* Runge-Kutta integration of cosmic time and growth rate */
       const gsl_odeiv2_step_type *T = gsl_odeiv2_step_rkf45;
       gsl_odeiv2_step *ode_s = gsl_odeiv2_step_alloc(T,NVAR);
@@ -194,8 +199,9 @@ int initialize_cosmology()
       gsl_odeiv2_evolve *ode_e = gsl_odeiv2_evolve_alloc(NVAR);
       gsl_odeiv2_system ode_sys = {system_of_ODEs, jac, NVAR, (void*)&ode_param};
 
+
       /* ICs for the runge-kutta integration */
-      x1   = pow(10., log_amin -2.);   /*  initial value of scale factor a */
+      x1   = pow(10., log_amin -2.);   /*  initial value of scale factor a */ 
       y[0] = 2. / 3. * pow(x1, 1.5);   /*  initial value of t(a)*Hubble0   */
 
       /* this is valid for scale-independent and scale-dependent functions */
@@ -214,7 +220,7 @@ int initialize_cosmology()
       hh=x1/10.;                       /*  initial guess of time-step */
 
       /* this function will be integrated within the loop */
-      Function_cosmo.function = &IntegrandComovingDistance;
+      Function.function = &IntegrandComovingDistance;
 
       /***********************************************/
       /* ODE integration of time-dependent functions */
@@ -229,6 +235,7 @@ int initialize_cosmology()
 	  while (x1<x2 && status==GSL_SUCCESS)
 	    {
 	      status=gsl_odeiv2_evolve_apply(ode_e, ode_c, ode_s, &ode_sys, &x1, x2, &hh, y);
+              
 	      if (status!=GSL_SUCCESS)
 		{
 		  printf("ERROR on task %d: integration of cosmological quantities failed\n",ThisTask);
@@ -236,16 +243,17 @@ int initialize_cosmology()
 		  return 1;
 		}
 	    }
+        
 
 	  scalef[i]   = x2;
-	  cosmtime[i] = log10(y[0]*HUBBLETIME_GYR/params.Hubble100);
+          cosmtime[i] = log10(y[0]*HUBBLETIME_GYR/params.Hubble100);
 	  if (!Today && x2>=1.)
 	    Today=i;
 
 	  for (j=0; j<NkBINS; j++) /* First-order growth rate */
 	    grow1[i+j*NBINS]  = y[2+j*8];
 	  for (j=0; j<NkBINS; j++) /* Second-order growth rate */
-	    grow2[i+j*NBINS]  = -y[4+j*8];
+            grow2[i+j*NBINS]  = -y[4+j*8];
 	  for (j=0; j<NkBINS; j++) /* Third-order first growth rate */
 	    grow31[i+j*NBINS] = -y[6+j*8] / 3.;
 	  for (j=0; j<NkBINS; j++) /* Third-order second growth rate */
@@ -260,11 +268,12 @@ int initialize_cosmology()
 	  for (j=0; j<NkBINS; j++) /* Third-order second f(Omega) */
 	    fomega32[i+j*NBINS] = x2 * y[7+j*8] / y[8+j*8];
 
+
 	  /* calculation of comoving distance (Mpc) for a generic cosmology (i.e. flat, open or closed) 
 	     and generic equation of state for the DE component  */
 	  if (i<NBINS-NBB)
 	    {
-	      gsl_integration_qags(&Function_cosmo, 0.0, 1./x2-1., 0.0, TOLERANCE, NWINT, workspace, &result, &error);
+	      gsl_integration_qags(&Function, 0.0, 1./x2-1., 0.0, TOLERANCE, NWINT, workspace, &result, &error);
 	      comvdist[i] = SPEEDOFLIGHT*result;
 	      if (fabs(OmegaK) < 1.e-4)
 		diamdist[i] = x2 * comvdist[i];
@@ -285,12 +294,22 @@ int initialize_cosmology()
 	}
 
 
+
+
   /* normalization of the first- and second- order growth rate */
   /* this is valid for LambdaCDM; for scale-dependent growth due to modified gravity, 
      the power spectrum is given as the LambdaCDM P(k) extrapolated at z=0, but this
      is valid only at high redshift; this normalization is still correct 
      when the k=0 growth rate (identical to LambdaCDM) is used at all scales */
-  norm =  grow1[Today];
+
+ 
+  norm =  grow1[Today]; 
+#if defined(nDGP) || defined(Cubic_Galileon)
+  norm =0.759344; //the LCDM D1 at a=1, every time you change the cosmology, its value should be changed.
+  grow1today=grow1[Today]/norm;
+#endif
+  
+
   for (i=0; i<NBINS*NkBINS; i++)
     {
       grow1[i] /= norm;
@@ -319,7 +338,7 @@ int initialize_cosmology()
       hh=x1/10.;                       /*  initial guess of time-step */
 
       /* this function will be integrated within the loop */
-      Function_cosmo.function = &IntegrandComovingDistance;
+      Function.function = &IntegrandComovingDistance;
 
       /***********************************************/
       /* ODE integration of time-dependent functions */
@@ -351,7 +370,7 @@ int initialize_cosmology()
 	     and generic equation of state for the DE component  */
 	  if (i<NBINS-NBB)
 	    {
-	      gsl_integration_qags(&Function_cosmo, 0.0, 1./x2-1., 0.0, TOLERANCE, NWINT, workspace, &result, &error);
+	      gsl_integration_qags(&Function, 0.0, 1./x2-1., 0.0, TOLERANCE, NWINT, workspace, &result, &error);
 	      comvdist[i] = SPEEDOFLIGHT*result;
 	      if (fabs(OmegaK) < 1.e-4)
 		diamdist[i] = x2 * comvdist[i];
@@ -424,6 +443,8 @@ int initialize_cosmology()
   free(cosmtime);
   free(scalef);
 
+
+
   /* normalization of power spectrum */
   if (normalize_PowerSpectrum())
     return 1;
@@ -432,6 +453,7 @@ int initialize_cosmology()
   WindowFunctionType=0;
   if (initialize_MassVariance())
     return 1;
+
 
   /* write out cosmological quantities */
   if (!ThisTask)
@@ -480,7 +502,7 @@ int initialize_cosmology()
 		  OmegaMatter(1./pow(10.,SPLINE[SP_TIME]->x[i])-1.0),
 		  (!params.simpleLambda ? -1 : (NtabEoS? SPLINE[SP_EOS]->y[i] : DE_EquationOfState(pow(10.,SPLINE[SP_TIME]->x[i])))),
 		  pow(10.,SPLINE[SP_GROW1]->y[i]),
-		  pow(10.,SPLINE[SP_GROW2]->y[i]),
+		  pow(10.,SPLINE[SP_GROW2]->y[i]), 
 		  pow(10.,SPLINE[SP_GROW31]->y[i]),
 		  pow(10.,SPLINE[SP_GROW32]->y[i]),
 		  SPLINE[SP_FOMEGA1]->y[i],
@@ -495,6 +517,7 @@ int initialize_cosmology()
 	  }
       fclose(fd);
 
+      
 #ifdef SCALE_DEPENDENT
       /* writes scale-dependent growth rates on a file */
       strcpy(filename,"pinocchio.");
@@ -507,7 +530,7 @@ int initialize_cosmology()
       fprintf(fd,"# Scales considered: ");
       for (ik=0; ik<NkBINS; ik++)
 	{
-#ifdef MOD_GRAV_FR
+#if defined(MOD_GRAV_FR) 
 	  /* with modified gravity the first wavenumber is set to zero */
 	  if (!ik)
 	    k=0.0;
@@ -562,33 +585,15 @@ int initialize_cosmology()
       fclose(fd);
 #endif
 
-    }
 
-#ifdef RECOMPUTE_DISPLACEMENTS
-  /* here the segmentation of the fragmentation process is defined */
-  /* for now, segmentation is taken from the outputs file */
-  ScaleDep.nseg=outputs.n;
-  for (int i=0; i<outputs.n; i++) // servono i growth rate? a che scala?
-    {
-      ScaleDep.z[i]  =outputs.z[i];
-      ScaleDep.D[i]  =GrowingMode(ScaleDep.z[i],0.0);
-      ScaleDep.D2[i] =GrowingMode_2LPT(ScaleDep.z[i],0.0);
-      ScaleDep.D31[i]=GrowingMode_3LPT_1(ScaleDep.z[i],0.0);
-      ScaleDep.D32[i]=GrowingMode_3LPT_2(ScaleDep.z[i],0.0);
-    }      
-#else
-  /* in case the displacements are not to be recomputed,
-     there is only one segment that gets to the end*/
-  ScaleDep.nseg=1;
-  ScaleDep.z[0]  =outputs.zlast;
-  ScaleDep.D[0]  =GrowingMode(ScaleDep.z[0],0.0);
-  ScaleDep.D2[0] =GrowingMode_2LPT(ScaleDep.z[0],0.0);
-  ScaleDep.D31[0]=GrowingMode_3LPT_1(ScaleDep.z[0],0.0);
-  ScaleDep.D32[0]=GrowingMode_3LPT_2(ScaleDep.z[0],0.0);
-#endif
+
+    }
 
   return 0;
 }
+
+
+
 
 #ifdef MOD_GRAV_FR
 /* scale-dependent functions for 2LPT term */
@@ -606,7 +611,9 @@ double mu(double a, double k) {
 
 int system_of_ODEs(double x, const double y[], double *dydx, void *param)
 {
-  
+
+  int j;  
+#ifndef Cubic_Galileon
   double a1, b1, Esq, de_eos, de_Esq, de_a1;
 
   /*
@@ -648,28 +655,29 @@ int system_of_ODEs(double x, const double y[], double *dydx, void *param)
   b1   = 1.5 *params.Omega0/(Esq*pow(x,5.0));
 
 
+
   /* cosmic time */
   dydx[0] = 1.0/x/sqrt(Esq);
 
 
 #if !defined(MOD_GRAV_FR) && !defined(FOMEGA_GAMMA)
-
+#ifndef nDGP
   /* this is the standard integration */
-  for (int j=0; j<NkBINS; j++)
+  for ( j=0; j<NkBINS; j++)
     {
-      dydx[1+j*8] = a1*y[1+j*8] + b1*y[2+j*8];                           /* d^2 D1/ dt^2 */
-      dydx[2+j*8] = y[1+j*8];                                            /* d D1/ dt */
-      dydx[3+j*8] = a1*y[3+j*8] + b1*y[4+j*8] - b1*y[2+j*8]*y[2+j*8];    /* d^2 D2/ dt^2 */
-      dydx[4+j*8] = y[3+j*8];                                            /* d D2/ dt */
-      dydx[5+j*8] = a1*y[5+j*8] + b1*y[6+j*8] - 2.*b1*y[2+j*8]*y[2+j*8]*y[2+j*8]; /* d^2 D31/ dt^2 */
-      dydx[6+j*8] = y[5+j*8];                                            /* d D31/ dt */
+      dydx[1+j*8] = a1*y[1+j*8] + b1*y[2+j*8];                           /* d^2 D1/ da^2 */
+      dydx[2+j*8] = y[1+j*8];                                            /* d D1/ da */
+      dydx[3+j*8] = a1*y[3+j*8] + b1*y[4+j*8] - b1*y[2+j*8]*y[2+j*8];    /* d^2 D2/ da^2 */
+      dydx[4+j*8] = y[3+j*8];                                            /* d D2/ da */
+      dydx[5+j*8] = a1*y[5+j*8] + b1*y[6+j*8] - 2.*b1*y[2+j*8]*y[2+j*8]*y[2+j*8]; /* d^2 D31/ da^2 */
+      dydx[6+j*8] = y[5+j*8];                                            /* d D31/ da */
       dydx[7+j*8] = a1*y[7+j*8] + b1*y[8+j*8] - 2.*b1*y[2+j*8]*y[4+j*8] 
-	+ 2.*b1*y[2+j*8]*y[2+j*8]*y[2+j*8];                              /* d^2 D32/ dt^2 */
-      dydx[8+j*8] = y[7+j*8];                                            /* d D32/ dt */
+	+ 2.*b1*y[2+j*8]*y[2+j*8]*y[2+j*8];                              /* d^2 D32/ da^2 */
+      dydx[8+j*8] = y[7+j*8];                                            /* d D32/ da */
     }
   return GSL_SUCCESS;
 #endif
-
+#endif
 
 #ifdef FOMEGA_GAMMA
 
@@ -685,6 +693,125 @@ int system_of_ODEs(double x, const double y[], double *dydx, void *param)
   return GSL_SUCCESS;
 #endif
 
+#endif
+
+#ifdef nDGP
+
+double H_over_c,nDGP_Hrc,Hdot,OmegaMatter,beta,c1;
+
+H_over_c=100.*params.Hubble100/299792.458;
+nDGP_Hrc=nDGP_rc*H_over_c;
+
+OmegaMatter=params.Omega0/Esq/x/x/x;
+Hdot=-3.*OmegaMatter*Esq/2.;
+
+
+beta=1.+2.*(1.+Hdot/3./Esq)*nDGP_Hrc*sqrt(Esq);
+c1=b1*(1.+1./3./beta)-b1*b1*4.*nDGP_Hrc*nDGP_Hrc*x*x*Esq/27./beta/beta/beta;
+b1=b1*(1.+1./3./beta);
+
+//printf("********************%12lg****************\n",nDGP_rc);
+for ( j=0; j<NkBINS; j++)
+    {
+      dydx[1+j*8] = a1*y[1+j*8] + b1*y[2+j*8];                           /* d^2 D1/ da^2 */
+      dydx[2+j*8] = y[1+j*8];                                            /* d D1/ da */
+      dydx[3+j*8] = a1*y[3+j*8] + b1*y[4+j*8] - c1*y[2+j*8]*y[2+j*8];    /* d^2 D2/ da^2 */
+      dydx[4+j*8] = y[3+j*8];                                            /* d D2/ da */
+      dydx[5+j*8] = a1*y[5+j*8] + b1*y[6+j*8] - 2.*b1*y[2+j*8]*y[2+j*8]*y[2+j*8]; /* d^2 D31/ da^2 */
+      dydx[6+j*8] = y[5+j*8];                                            /* d D31/ da */
+      dydx[7+j*8] = a1*y[7+j*8] + b1*y[8+j*8] - 2.*b1*y[2+j*8]*y[4+j*8] 
+	+ 2.*b1*y[2+j*8]*y[2+j*8]*y[2+j*8];                              /* d^2 D32/ da^2 */
+      dydx[8+j*8] = y[7+j*8];                                            /* d D32/ da */
+    }
+  return GSL_SUCCESS;
+
+
+
+#endif
+
+
+#ifdef Cubic_Galileon
+
+  double M,c2,c3,ksi;
+  double H,dHdt,dphidt,ddphiddt;                    
+
+  double a2,a3,x1,x3,epsilon,inter,Qs,cs2,lambda2,zeta;
+  double e1,e2,e3,b2,b3;
+  
+       
+  M=pow(100.*params.Hubble100,2./3.);         
+  c2=-1.;
+  c3=1./6./sqrt(6.*params.OmegaLambda);
+  ksi=sqrt(6.*params.OmegaLambda);
+
+
+  H=100.*params.Hubble100*sqrt((params.Omega0/pow(x,3.)+OmegaRad/pow(x,4.)+sqrt(pow(params.Omega0/pow(x,3.)+OmegaRad/pow(x,4.),2.)+4.*params.OmegaLambda))/2.);
+  dHdt=(pow(100.*params.Hubble100,4.)*params.OmegaLambda/H/H-H*H-100.*params.Hubble100*100.*params.Hubble100*(params.Omega0/pow(x,3.)+2.*OmegaRad/pow(x,4.))/2.)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);
+ 
+
+  dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
+  ddphiddt=-ksi*100.*params.Hubble100*100.*params.Hubble100*dHdt/H/H;
+
+  
+  //parameters for Cubic Galileon         the notations obey Frusciante et al. 2020(arXiv:2004.11881), all the G3 related functions obey this notation.
+  a2=-c2/2.;                                
+  a3=c3/M/M/M/3.;
+  x1=-a2*dphidt*dphidt/H/H/3.;
+  x3=6.*a3*dphidt*dphidt*dphidt/H;
+  epsilon=ddphiddt/H/dphidt;
+  //h1=dHdt/H/H;
+  inter=(pow(100.*params.Hubble100/H,4.)*params.OmegaLambda*(2.5-1.5*(x1+x3)+0.5*OmegaRad*100.*params.Hubble100*100.*params.Hubble100/H/H/x/x/x/x)-x1-x3)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);                                                    
+ 
+  Qs=3.*(4.*x1+4.*x3+x3*x3)/(2.-x3)/(2.-x3);
+  cs2=(2.*(1.+3.*epsilon)*x3-x3*x3-4.*inter)/3./(4.*x1+4.*x3+x3*x3);   
+  
+  
+  lambda2=12.*a3*dphidt*dphidt/(H*H*cs2*Qs)/(2.-x3)/(2.-x3);
+  zeta=lambda2*dphidt*dphidt;
+
+
+
+//parameters of growth functions for Cubic Galileon
+  e1=-(3./x + 0.25*100.*params.Hubble100*100.*params.Hubble100*(-3.*params.Omega0/pow(x,4.0)-
+3.*params.Omega0*params.Omega0/pow(x,7.0)/sqrt(params.Omega0*params.Omega0/pow(x,6.)+4.*params.OmegaLambda))/H/H);
+  
+  b2=1.5 *params.Omega0*100.*params.Hubble100*100.*params.Hubble100/pow(x,5.0)/H/H;
+  e2=b2*(1.+zeta*3.*a3*dphidt*dphidt);
+  
+  b3=3.*a3*dphidt*dphidt*b2*b2*x*x*H*H*zeta*zeta*lambda2;            
+  e3=0.5*e2+b3;
+
+
+/* cosmic time */
+  dydx[0] = 1.0*100.*params.Hubble100/x/H;
+
+
+  for ( j=0; j<NkBINS; j++)
+    {      
+
+      dydx[1+j*8] = e1*y[1+j*8] + e2*y[2+j*8];                                           /* d^2 D1/ da^2 */         
+      dydx[2+j*8] = y[1+j*8];                                                        /* d D1/ da */
+      dydx[3+j*8] = e1*y[3+j*8] + e2*y[4+j*8] - 2.*e3*y[2+j*8]*y[2+j*8];
+      dydx[4+j*8] = y[3+j*8];                                                        /* d D2/ dt */
+
+    /* third-order growth is not used, it is set to the LCDM one */
+      dydx[5+j*8] = e1*y[5+j*8] + b2*y[6+j*8] - 2.*b2*y[2+j*8]*y[2+j*8]*y[2+j*8]; /* d^2 D31/ da^2 */
+      dydx[6+j*8] = y[5+j*8];                                                      /* d D31/ da */
+      dydx[7+j*8] = e1*y[7+j*8] + b2*y[8+j*8] - 2.*b2*y[2+j*8]*y[4+j*8] 
+	+ 2.*b2*y[2+j*8]*y[2+j*8]*y[2+j*8];                                     /* d^2 D32/ da^2 */                                      
+      dydx[8+j*8] = y[7+j*8];                                                /* d D32/ da */
+
+
+    }
+
+  return GSL_SUCCESS;
+#endif
+
+
+
+
+
+
 
 #ifdef MOD_GRAV_FR
 
@@ -692,10 +819,11 @@ int system_of_ODEs(double x, const double y[], double *dydx, void *param)
   /* equations for D2(k,a) as in Moretti et al. (2019) */
 
   double B1,B2,kkk,PI1,PI2,M2;
+  int ik;
   B1  = params.Omega0 + 4. * params.OmegaLambda;
   B2  = params.Omega0 / pow(x, 3.) + 4. * params.OmegaLambda;
 
-  for (int ik=0; ik<NkBINS; ik++)
+  for ( ik=0; ik<NkBINS; ik++)
     {
       if (!ik)
 	kkk=0.0;
@@ -715,12 +843,12 @@ int system_of_ODEs(double x, const double y[], double *dydx, void *param)
       
       /* third-order growth is not used, it is set to the LCDM one */
       dydx[5 + 8*ik] = a1*y[5 + 8*ik] + b1*y[6 + 8*ik]
-	- 2.*b1*y[2 + 8*ik]*y[2 + 8*ik]*y[2 + 8*ik];              /* d^2 D31/ dt^2 */
-      dydx[6 + 8*ik] = y[5 + 8*ik];                               /* d D31/ dt */
+	- 2.*b1*y[2 + 8*ik]*y[2 + 8*ik]*y[2 + 8*ik];              /* d^2 D31/ da^2 */
+      dydx[6 + 8*ik] = y[5 + 8*ik];                               /* d D31/ da */
       dydx[7 + 8*ik] = a1*y[7 + 8*ik] + b1*y[8 + 8*ik] 
 	- 2.*b1*y[2 + 8*ik]*y[4 + 8*ik] 
-	+ 2.*b1*y[2 + 8*ik]*y[2 + 8*ik]*y[2 + 8*ik];              /* d^2 D32/ dt^2 */
-      dydx[8 + 8*ik] = y[7 + 8*ik];                               /* d D32/ dt */
+	+ 2.*b1*y[2 + 8*ik]*y[2 + 8*ik]*y[2 + 8*ik];              /* d^2 D32/ da^2 */
+      dydx[8 + 8*ik] = y[7 + 8*ik];                               /* d D32/ da */
 
     }
 
@@ -730,13 +858,15 @@ int system_of_ODEs(double x, const double y[], double *dydx, void *param)
   return GSL_FAILURE;
 }
 
+
+
 int system_of_ODEs_small(double x, const double y[], double *dydx, void *param)
 {
   
   double Esq, de_eos, de_Esq;
 
-  /*
-    0 : cosmic time t
+  /* 
+    cosmic time
   */
 
   if (params.simpleLambda) 
@@ -755,7 +885,7 @@ int system_of_ODEs_small(double x, const double y[], double *dydx, void *param)
     + OmegaRad/pow(x,4.0)
     + params.OmegaLambda * de_Esq;
 
-  /* cosmic time */
+   /* cosmic time */
   dydx[0] = 1.0/x/sqrt(Esq);
 
   return GSL_SUCCESS;
@@ -939,6 +1069,10 @@ double PowerSpectrum(double k)
       power *= Tf * Tf;
     }
 
+
+  //double D = GrowingMode(0.0, k); //nDGP
+  //return PkNorm * power*D*D*D*D; //nDGP
+
   return PkNorm * power;
 }
 
@@ -1000,10 +1134,14 @@ int normalize_PowerSpectrum(void)
   PkNorm=1.0;
   if (params.Sigma8!=0.0 && WhichSpectrum!=5)
     {
-      tmp = params.Sigma8 * params.Sigma8 / ComputeMassVariance(8.0/params.Hubble100);
+      tmp = params.Sigma8 * params.Sigma8 / ComputeMassVariance(8.0/params.Hubble100); 
+#if defined(nDGP) || defined(Cubic_Galileon)
+      tmp=tmp * grow1today * grow1today;
+#endif
       PkNorm = tmp;
       if (!ThisTask)
 	{
+          printf("********************************************************************%d\n",ThisTask);
 	  if (WhichSpectrum==2)
 	    printf("Warning: you have read a P(k) from file but set its normalization through the parameter file\nThis is fine as long as you know what you are doing, but if you trust the normalization\nof the P(k) you have provided set Sigma8 to 0\n");
 	  printf("Normalization constant for the power spectrum: %g\n",PkNorm);
@@ -1136,7 +1274,7 @@ int read_Pk_table_from_CAMB(double *scalef, double *grow1, double *grow2, double
      and for the growth rates
   */
 
-int i,j,dummy,i1,i2,First,Today;
+  int i,j,dummy,i1,i2,First,Today;
   double kappa,myPk,z,Om,slope;
   char filename[LBLENGTH],buffer[LBLENGTH],*ugo;
   FILE *fd;
@@ -1445,7 +1583,6 @@ int i,j,dummy,i1,i2,First,Today;
 
   return 0;
 }
-
 #endif
 
 
@@ -1522,6 +1659,7 @@ double T0(double q,double a,double b)
 /* MASS VARIANCE SECTION */
 /*************************/
 
+double ThisRadius;
 double IntegrandForMassVariance(double, void *);
 double IntegrandForDisplVariance(double, void *);
 
@@ -1579,12 +1717,10 @@ int initialize_MassVariance(void)
 
 double ComputeMassVariance(double R)
 {
-  double       result, error;
-  gsl_function Function;  
-  double       ThisRadius = R;
-  
+  double result, error;
+
+  ThisRadius=R;
   Function.function = &IntegrandForMassVariance;
-  Function.params = &ThisRadius;
   gsl_integration_qags (&Function, -10., log(500.0/R) , 0.0, TOLERANCE, NWINT, workspace, &result, &error);
 
   return result;
@@ -1593,8 +1729,6 @@ double ComputeMassVariance(double R)
 double IntegrandForMassVariance(double logk, void *param)
 {
   double w, k, D;
-  double ThisRadius = *(double*)param;
-  
   k = exp(logk);
   w = WindowFunction(k * ThisRadius);
   /* This is superfluous in most cases, 
@@ -1605,12 +1739,10 @@ double IntegrandForMassVariance(double logk, void *param)
 
 double ComputeDisplVariance(double R)
 {
-  double       result, error;
-  gsl_function Function;
-  double       ThisRadius = R;
-  
+  double result, error;
+
+  ThisRadius=R;
   Function.function = &IntegrandForDisplVariance;
-  Function.params = &ThisRadius;
   gsl_integration_qags (&Function, -10., log(500.0/R) , 0.0, TOLERANCE, NWINT, workspace, &result, &error);
 
   return result;
@@ -1619,8 +1751,6 @@ double ComputeDisplVariance(double R)
 double IntegrandForDisplVariance(double logk, void *param)
 {
   double w, k, D;
-  double ThisRadius = *(double*)param;
-  
   k=exp(logk);
   w = WindowFunction(k * ThisRadius);
   /* This is superfluous in most cases, 
@@ -1707,11 +1837,37 @@ double OmegaLambda(double z)
 {
   /* Cosmological mass density parameter as a function of redshift
      DIMENSIONLESS */
+#ifdef Cubic_Galileon
+  double M,c2,c3,ksi,x;
+  double H,dphidt;                    
+  double a2,a3,x1,x3;
+  
+  x=1.-1./z;       
+  M=pow(100.*params.Hubble100,2./3.);         
+  c2=-1.;
+  c3=1./6./sqrt(6.*params.OmegaLambda);
+  ksi=sqrt(6.*params.OmegaLambda);
 
+  H=100.*params.Hubble100*sqrt((params.Omega0/pow(x,3.)+OmegaRad/pow(x,4.)+sqrt(pow(params.Omega0/pow(x,3.)+OmegaRad/pow(x,4.),2.)+4.*params.OmegaLambda))/2.);
+  
+  dphidt=ksi*100.*params.Hubble100*100.*params.Hubble100/H;                                             
+  
+  a2=-c2/2.;                                   // refer to Frusciante et al. 2020(arXiv:2004.11881)
+  a3=c3/M/M/M/3.;
+  x1=-a2*dphidt*dphidt/H/H/3.;
+  x3=6.*a3*dphidt*dphidt*dphidt/H;
+  
+  //return params.OmegaLambda * pow(Hubble(z)/100./params.Hubble100, -2);
+  return x1+x3;
+#else
   return params.OmegaLambda * pow(Hubble(z)/100./params.Hubble100, -2);
+#endif
 }
 
 
+
+
+#ifndef Cubic_Galileon
 double Hubble(double z)
 {
   /* Hubble parameter as a function of redshift
@@ -1728,6 +1884,40 @@ double Hubble(double z)
 
   return 100.*params.Hubble100*sqrt(Esq);
 }
+
+
+#endif
+
+
+#ifdef Cubic_Galileon
+double Hubble(double z)
+{
+  /* Hubble parameter as a function of redshift
+     DIMENSION: km/s/Mpc  */
+
+  double Esq;
+
+  Esq=(params.Omega0*pow(1.+z,3.)+sqrt(params.Omega0*params.Omega0*pow(1.+z,6.)+4.*params.OmegaLambda))/2.;
+
+  return 100.*params.Hubble100*sqrt(Esq);
+}
+
+double dotHubble(double z)
+{
+
+  double Esq,H;
+
+  Esq=(params.Omega0*pow(1.+z,3.)+sqrt(params.Omega0*params.Omega0*pow(1.+z,6.)+4.*params.OmegaLambda))/2.;
+  H=100.*params.Hubble100*sqrt(Esq);
+
+  return (pow(100.*params.Hubble100,4.)*params.OmegaLambda/H/H-H*H-100.*params.Hubble100*100.*params.Hubble100*params.Omega0*pow(1.+z,3.)/2.)/(1.+pow(100.*params.Hubble100/H,4.)*params.OmegaLambda);
+ 
+
+}
+#endif
+
+
+
 
 
 double Hubble_Gyr(double z)
